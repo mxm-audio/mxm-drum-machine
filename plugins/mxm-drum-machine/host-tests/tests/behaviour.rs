@@ -178,11 +178,32 @@ fn pre_d7_state_opens_with_routing_defaults_and_bit_exact_main_audio() {
     // The original pre-D7 render, `non-default-kit-main.wav`, proved this bit-exact against the
     // retained pre-D7 bundle until the slot's model was deliberately refitted. The current render
     // is re-captured only for such a sound change, never to let a routing change pass.
-    assert_eq!(
-        render_note_36(&mut session),
-        decode(&fixture("non-default-kit-main-current.wav")),
-        "default D7 routing changed the main render of a pre-D7 state"
-    );
+    let rendered = render_note_36(&mut session);
+    let recorded = decode(&fixture("non-default-kit-main-current.wav"));
+    if cfg!(target_os = "windows") {
+        assert_eq!(
+            rendered, recorded,
+            "default D7 routing changed the main render of a pre-D7 state"
+        );
+    } else {
+        // The recording is Windows' bits: each platform's maths library rounds in its own way (the
+        // owner, 2026-10-06: pin on Windows only). Within rounding it must still be the same
+        // render; a routing change moves it by far more (silence, a doubled or a missing slot).
+        assert_eq!(
+            rendered.len(),
+            recorded.len(),
+            "the render's length changed"
+        );
+        let worst = rendered
+            .iter()
+            .zip(&recorded)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst < 1.0e-3,
+            "default D7 routing changed the main render of a pre-D7 state (worst sample off by {worst})"
+        );
+    }
 }
 
 /// Rewrites `non-default-kit-main-current.wav` after a deliberate change to the sound of the kit's
