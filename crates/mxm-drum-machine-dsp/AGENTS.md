@@ -147,7 +147,7 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
 
 - Read `research:instruments/analogue-drum-machines.md` and its cited primary source before adding or
   changing a circuit. Do not infer an exact transfer function from a block label.
-- Fit a model against its hardware recording with [`../../docs/drum-model-fitting.md`](https://github.com/mxm-audio/newdawn-workspace/blob/main/docs/drum-model-fitting.md):
+- Fit a model against its hardware recording with [`../../docs/drum-model-fitting.md`](../../docs/drum-model-fitting.md):
   the `drum_machine_ab_page` example and `tools/` build a local comparison site of waveforms,
   spectrograms and metrics. The site, its mapping and the recordings never enter the repository.
   Once a model is close, fit it by the profile `tools/ab_resonance.py` reports rather than by any

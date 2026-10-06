@@ -530,7 +530,7 @@ hardware verification.
 
 **The 2026-09-19 comparison fit.** Every model with an acquired comparison recording was fitted to
 it by onset, sweep, rest pitch, envelope and spectrum, with
-[`../../docs/drum-model-fitting.md`](https://github.com/mxm-audio/newdawn-workspace/blob/main/docs/drum-model-fitting.md). Code comments name each
+[`../../docs/drum-model-fitting.md`](../../docs/drum-model-fitting.md). Code comments name each
 fitted constant. A fit is recognisability against one recording chain, not hardware verification:
 fidelity stays UNVERIFIED. Where it differs, it supersedes the service values and the 2026-09-18
 calibrations below.

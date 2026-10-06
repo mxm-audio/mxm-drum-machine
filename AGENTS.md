@@ -111,6 +111,7 @@ technique or paper it comes from.
 
 # Ownership
 
+- `docs/drum-model-fitting.md`: how to compare every model with a recording of the hardware it copies, and fit it. A guide, owned here since the split (2026-10-06).
 Root owns `Cargo.toml`, `Cargo.lock`, `LICENSE`, `NOTICE.md`, `TRADEMARKS.md`, `README.md`,
 `CONTRIBUTING.md`, `.cargo/`, `.github/`, `bundler.toml`, `test-bundles.txt` and `xtask/`.
 Each folder with an `AGENTS.md` owns its contents; the index is below.
