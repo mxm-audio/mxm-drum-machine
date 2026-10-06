@@ -1,6 +1,6 @@
 # mxm-drum-machine — UI and catalogue brief
 
-Required by `MXM_DESIGN_SYSTEM.md` §14 and written before editor or DSP implementation. Product
+Required by mxm-kit's `docs/MXM_DESIGN_SYSTEM.md` §14 and written before editor or DSP implementation. Product
 architecture: `plans/plan-mxm-drum-machine.md` revision 33. Hardware evidence:
 `research:instruments/analogue-drum-machines.md`.
 
@@ -268,7 +268,7 @@ resize remain manual §15 gates.
   unavailable 2 and 255, make a fixture ID available, and require every old normalized value and
   label to restore unchanged.
 
-The existing shared selector already searches above 24 options. `crates/ui` gains only generic group
+The existing shared selector already searches above 24 options. mxm-kit's `crates/ui` gains only generic group
 heading metadata if the real menu proof shows headings fit and filter correctly; the mapped stable
 IDs remain plugin-owned data rather than a drum-specific shared widget.
 

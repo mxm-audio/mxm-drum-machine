@@ -104,8 +104,9 @@ const RESAMPLE_MIN_WIDTH: f32 = 86.0;
 /// How wide each half of the app-bar pair is drawn.
 ///
 /// The widest of the two labels wins, so the two always match and neither ever overflows. It is
-/// measured rather than guessed because `crates/ui/AGENTS.md` requires a bar control to reserve
-/// its widest form — an under-reserved one does not clip, it wraps the whole bar.
+/// measured rather than guessed because mxm-kit's `crates/ui` (*The app bar*, in its `AGENTS.md`
+/// and `NOTES.md`) requires a bar control to reserve its widest form — an under-reserved one does
+/// not clip, it wraps the whole bar.
 fn resample_pair_width(ui: &Ui, params: &MxmDrumMachineParams) -> f32 {
     let button = egui::TextStyle::Button.resolve(ui.style());
     let export = ui
@@ -914,8 +915,8 @@ fn lfo_row(ui: &Ui, params: &MxmDrumMachineParams, index: usize) -> Node<Leaf> {
 }
 
 /// Everything a leaf draws with: the parameters and their host, the editor's selection and text
-/// buffers, and the slot peaks taken once before the frame (`plugins/AGENTS.md`: destructive
-/// telemetry is read once).
+/// buffers, and the slot peaks taken once before the frame (mxm-kit's
+/// `docs/plugin-conventions.md`, *Editor contract*: destructive telemetry is read once).
 struct Live<'a, 'b> {
     params: &'a MxmDrumMachineParams,
     setter: &'a ParamSetter<'b>,
@@ -1862,11 +1863,11 @@ fn export_status_id() -> egui::Id {
 /// kit, then write the frozen kit out — and drawing a wide toggle above a narrow button read as
 /// two unrelated controls.
 ///
-/// **In the app bar, laid out along it** (owner, 2026-09-22), which `crates/ui/AGENTS.md` requires
-/// of anything in the bar: the pair opens its own left-to-right region inside the bar's
-/// right-to-left group, and reserves a fixed width so nothing downstream jitters as the status
-/// text changes. The status is a bar-width label rather than the card's line, because the bar is
-/// one row high.
+/// **In the app bar, laid out along it** (owner, 2026-09-22), which mxm-kit's `crates/ui` requires
+/// of anything in the bar (its `NOTES.md`, *A control in the app bar is laid out along it*): the
+/// pair opens its own left-to-right region inside the bar's right-to-left group, and reserves a
+/// fixed width so nothing downstream jitters as the status text changes. The status is a bar-width
+/// label rather than the card's line, because the bar is one row high.
 fn resample_pair(
     ui: &mut Ui,
     tokens: &Tokens,
@@ -2360,11 +2361,11 @@ mod tests {
                         // one means the layout squeezed it.
                         //
                         // Excluding it did hide two things, found on 2026-09-20 and belonging to
-                        // `crates/ui` rather than to this plugin, which is where the fix and its
-                        // own review go: at the minimum window `mxm_ui::shell::zoom_control`
-                        // paints its readout from a negative x, losing ~9 pt off the left edge at
-                        // every width tried, and the preset name loses ~33 pt. The first is a
-                        // positioning bug, not truncation.
+                        // mxm-kit's `crates/ui` rather than to this plugin, which is where the fix
+                        // and its own review go: at the minimum window
+                        // `mxm_ui::shell::zoom_control` paints its readout from a negative x,
+                        // losing ~9 pt off the left edge at every width tried, and the preset name
+                        // loses ~33 pt. The first is a positioning bug, not truncation.
                         let in_the_app_bar = clipped.clip_rect.height() < 64.0;
                         assert!(
                             lost <= 1.0 || in_the_app_bar,

@@ -70,8 +70,9 @@ pub const fn note_for_slot(slot: usize) -> Option<u8> {
 /// of the rule alone: holding costs a tuple comparison, a branch and a read from a larger struct,
 /// which is the same order as the `exp` it replaces. On sixteen continuously running voices the
 /// whole of this crate's per-voice holding measured inside the run-to-run spread, so several sites
-/// are deliberately left rebuilding. The crate's AGENTS.md carries the figures and the policy; add
-/// a site when a measurement on a scene where the voices are running says it is worth it.
+/// are deliberately left rebuilding. The crate's AGENTS.md carries the policy and its NOTES.md
+/// (*Realtime and numeric rules*) the figures; add a site when a measurement on a scene where the
+/// voices are running says it is worth it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Coefficient<K, V> {
     held: Option<(K, V)>,

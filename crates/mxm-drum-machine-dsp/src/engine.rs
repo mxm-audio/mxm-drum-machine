@@ -3098,8 +3098,8 @@ mod sample_hold {
 
     #[test]
     fn a_reset_restores_the_same_sequence() {
-        // `AGENTS.md`: all randomness uses explicit fixed seeds, and a reset restores
-        // deterministic startup.
+        // `NOTES.md` (*Deterministic events and randomness*; the rule is in `AGENTS.md`): all
+        // randomness uses explicit fixed seeds, and a reset restores deterministic startup.
         let mut lfo = Lfo::new(LFO_SEEDS[2]);
         let before = drawn(&mut lfo, 4.0, 8);
         lfo.reset();

@@ -648,8 +648,9 @@ fn decay_step(decay: f32, capture: &SlotCapture, sample_rate: f32) -> f32 {
 
 /// Reads `samples` at a fractional `position`, band-limited for the playback `rate`.
 ///
-/// Pitching up folds content that no longer fits, and
-/// [`docs/oscillators/14-samplers.md`](../../../docs/oscillators/14-samplers.md) §14.5 measures
+/// Pitching up folds content that no longer fits, and mxm-kit's
+/// [`docs/oscillators/14-samplers.md`](https://github.com/mxm-audio/mxm-kit/blob/main/docs/oscillators/14-samplers.md)
+/// §14.5 measures
 /// why a better interpolator alone is the wrong half of that problem: the cutoff has to come down
 /// with the rate. So the kernel is a windowed sinc whose cutoff narrows above unity, and at unity
 /// the whole thing short-circuits to a plain fetch — the common case must not pay for the rare

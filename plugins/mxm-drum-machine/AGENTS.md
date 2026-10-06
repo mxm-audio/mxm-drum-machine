@@ -158,7 +158,9 @@ cargo test -p mxm-drum-machine-host-tests      # through MXM Player, against tha
 The pre-D7 compatibility fixture, the editor's standard and tree checks, review pictures
 (`MXM_PICTURES=after cargo test -p mxm-drum-machine --lib tree_pictures -- --ignored`) and the full
 coverage list: [NOTES.md § Verification evidence](NOTES.md#verification-evidence). Hardware
-fidelity, real multi-output DAW restoration, Linux and macOS remain unverified.
+fidelity, real multi-output DAW restoration, Linux and macOS remain unverified. *Since the split
+(2026-10-06):* CI builds and tests Windows, macOS and Linux on `v*` release tags or when started by
+hand, and Linux is checked in WSL before a push (root `AGENTS.md`, *Verification*).
 
 # Child DOX Index
 

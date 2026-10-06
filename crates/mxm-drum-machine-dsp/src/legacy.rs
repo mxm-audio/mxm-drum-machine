@@ -157,10 +157,10 @@ const fn start_bank() -> [BlepSquare; OSCILLATORS] {
 /// One free-running square, the trivial ±1 pulse at its duty with both edges repaired by the
 /// four-point (third-order B-spline) PolyBLEP residual of Välimäki, Pekonen and Nam, "Perceptually
 /// informed synthesis of bandlimited classical waveforms using integrated polynomial
-/// interpolation" (JASA 2012, Table VII), as `docs/oscillators/02-antialiasing.md` §2.6.2 gives it
-/// — the technique `metal_808.rs` uses, kept local here. The trivial squares folded partials back
-/// into the hats' band; correcting two samples ahead of each edge delays a free-running source by
-/// two samples, which it cannot show.
+/// interpolation" (JASA 2012, Table VII), as mxm-kit's `docs/oscillators/02-antialiasing.md`
+/// §2.6.2 gives it — the technique `metal_808.rs` uses, kept local here. The trivial squares
+/// folded partials back into the hats' band; correcting two samples ahead of each edge delays a
+/// free-running source by two samples, which it cannot show.
 #[derive(Debug, Clone, Copy)]
 struct BlepSquare {
     /// Phase as a fraction of a cycle in fixed point: the whole `u64` range is one cycle.

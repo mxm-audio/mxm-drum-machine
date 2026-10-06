@@ -11,7 +11,10 @@ most of the work went. Its last part, *Acoustic drum models in particular*, is w
 This is a howto and owns no rules. What a model may and may not do is
 [`crates/mxm-drum-machine-dsp/AGENTS.md`](../crates/mxm-drum-machine-dsp/AGENTS.md), and for the
 acoustic models [`crates/mxm-model-drums-dsp/AGENTS.md`](https://github.com/mxm-audio/mxm-model-drums/blob/main/crates/mxm-model-drums-dsp/AGENTS.md). What may cross
-from a recording into the repository is the root [`AGENTS.md`](../AGENTS.md) *Research boundary*.
+from a recording into the repository is the root [`AGENTS.md`](../AGENTS.md) *Research citations*,
+with the full text in mxm-kit's
+[`docs/collection-rules.md`](https://github.com/mxm-audio/mxm-kit/blob/main/docs/collection-rules.md#research-boundary),
+*Research boundary*.
 Where this page and an owner disagree, the owner wins.
 
 **When to do it:** once a machine's circuits render and pass their own tests, and before owner
@@ -69,12 +72,12 @@ python crates/mxm-drum-machine-dsp/tools/ab_serve.py <site>
 # After every regeneration: an approved drum whose sound changed goes back to "changed"
 python crates/mxm-drum-machine-dsp/tools/ab_review.py refresh <site>
 # What the listener hears on every row, before anyone listens: <site>/listen/index.md, and a report
-# per row beside it (NNN.md, NNN.json)
+# per row beside it (NNN.md, NNN.json). Run in the mxm-tools repository, whose crate the listener is
 cargo run -p mxm-listening --release --bin listen -- site <site>
 ```
 
 **Run the listener first.** `listen site` reads every row's model against its original with
-`crates/mxm-listening` — each difference with its window, band, both values, its size in audibility
+mxm-tools' `crates/mxm-listening` — each difference with its window, band, both values, its size in audibility
 thresholds and the owner's words for it, most audible first, and the regions where the two differ
 and no reading says why. Read `listen/index.md` before looking at a picture and before the owner
 hears the page; the Python tools stay the owner's views. For one pair, `listen compare <original>
@@ -116,7 +119,7 @@ default filter shows only what needs the owner's ear.
   so an approved row stays in place, dimmed.
 
 **What the generator does.** Its decode, trim and body loudness live in
-`crates/mxm-listening/src/prep.rs`, which the page calls, so the page and every listening report read
+mxm-tools' `crates/mxm-listening/src/prep.rs`, which the page calls, so the page and every listening report read
 a sound the same way; the steps below are those definitions.
 1. It renders each model the way every calibration measures it: zero deviation, velocity 0.82,
    48 kHz, alone in slot 1, panned hard to one side so the channel is the mono circuit, eight
@@ -456,7 +459,9 @@ does not have to match.
 - a large sub-audio thump that is either the gate leaking into the audio or processing.
 
 Record each doubt in the mapping and in the code comment. Reproduce a wart only when it is the
-machine's (root *A copy is warts and all*), and never fit a model to a recording chain's artefact.
+machine's (*A copy is warts and all*, in mxm-kit's
+[`docs/collection-rules.md`](https://github.com/mxm-audio/mxm-kit/blob/main/docs/collection-rules.md#the-goal-and-how-much-licence-a-copy-has)),
+and never fit a model to a recording chain's artefact.
 
 ## 7. Fine-tuning: moving a model the last hundred hertz
 
@@ -468,9 +473,9 @@ whose listening is the scarcest thing in the process.
 
 Every phrase below cost at least one round before it was understood. The measurement is what the
 phrase turned out to mean on this machine, with this owner. The listener speaks these phrases
-(`crates/mxm-listening/data/vocabulary.tsv` is this table's machine-readable form, so a new phrase
+(mxm-tools' `crates/mxm-listening/data/vocabulary.tsv` is this table's machine-readable form, so a new phrase
 goes into both), and what the owner said about which sounds is kept as its golden cases
-(`crates/mxm-listening/data/golden.tsv`, scored by `listen golden`). Before acting on a note, run
+(mxm-tools' `crates/mxm-listening/data/golden.tsv`, scored by `listen golden`). Before acting on a note, run
 `listen explain "<phrase>" <reference> <candidate>`: it lists what the phrase has meant and those
 readings' differences in the two sounds.
 
@@ -538,6 +543,7 @@ pitch shift, a shorter decay, a brighter top octave — and walks the amount dow
 guesses right about 70 % of the time.
 
 ```bash
+# In the mxm-tools repository, whose crate the listener is
 cargo run -p mxm-listening --release --bin listen -- session <a sound the owner knows> [--operators pitch,decay,band-3200-6400] [--minutes 6]
 cargo run -p mxm-listening --release --bin listen -- calibrate
 ```
@@ -737,7 +743,8 @@ miss in the part being worked on weighed no more than a few small ones elsewhere
 pulled the settings the wrong way. What worked:
 - **One layer, one part.** Take the middle layer. Work §5's parts in turn, reading only that part's
   readings. Move to the other layers only when the part is right.
-- **The fast loop.** The kick fit's `render` mode (`crates/mxm-model-drums-dsp/examples/model_drums_kick_fit.rs`)
+- **The fast loop.** The kick fit's `render` mode (mxm-model-drums'
+  [`crates/mxm-model-drums-dsp/examples/model_drums_kick_fit.rs`](https://github.com/mxm-audio/mxm-model-drums/blob/main/crates/mxm-model-drums-dsp/examples/model_drums_kick_fit.rs))
   reads one layer's takes once. It then renders the setting and each `--try a=v,b=w` on top of it,
   about 4 s a try, and prints the listener's established differences, most audible first — only
   `--parts` asked for, nothing of the room (`--room-after`). `--shape yes` prints the first 15 ms a
@@ -828,7 +835,7 @@ differences against 44; two takes of the drum differ by 12). What it took:
   recording; the listener and the ear are the ruler.
 - **Before a preset stores curves measured from a recording, counsel reads Roland's US 11,127,387**
   (stored sine envelopes plus a residual split from a recording; `plans/plan-mxm-model-drums.md`
-  revision 11). Laws — decay times, centres, tilts — set through the editor are the other road.
+  revision 11, in the private archive). Laws — decay times, centres, tilts — set through the editor are the other road.
 
 **Reading the owner's words on an acoustic drum.**
 

@@ -368,7 +368,8 @@ group, and **sized from the widest of the two labels** (`resample_pair_width`), 
 takes through `mxm_ui::control::toggle_stack`. That measurement is
 not decoration: the export label was renamed from a shorter string to `Export samples`, overflowed
 the width the pair had reserved, wrapped the whole app bar and cost the window 335 pt of height.
-mxm-kit's `crates/ui/AGENTS.md` "reserve the widest form" is what an under-reserved bar control breaks.
+mxm-kit's `crates/ui` "reserve the widest form" (*The app bar*, in its `AGENTS.md` and `NOTES.md`)
+is what an under-reserved bar control breaks.
 
 **It is "Export samples", not "Export pack".** The preset browser's footer already carries an
 `Export…` that packs *presets* into a bank file, in the same window; two buttons reading "Export"
@@ -632,4 +633,8 @@ transfer at every sample phase, reversal plus latest-wins, and a silent slot —
 its circuit runs — taking a new output before its next hit or unmute. MXM Player reopens the fixed pre-D7 state and matches its main render
 bit-for-bit, keeps a slot stored on an individual output audible in stereo compatibility, and
 round-trips non-default Output/MIDI channel through CLAP state. Hardware fidelity, real multi-output
-DAW restoration, Linux and macOS remain unverified.
+DAW restoration, Linux and macOS remain unverified. *Since the split (2026-10-06):* the main render
+is matched bit-for-bit on Windows only and within rounding elsewhere, because the recording holds
+Windows' bits (the owner, 2026-10-06); CI builds and tests Windows, macOS and Linux on `v*` release
+tags or when started by hand, and Linux is checked in WSL before a push (root `AGENTS.md`,
+*Verification*).

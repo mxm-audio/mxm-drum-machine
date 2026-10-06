@@ -74,5 +74,5 @@ cargo test -p mxm-drum-machine
 cargo xtask bundle mxm-drum-machine --release
 ```
 
-MIT licensed — see [LICENSE](LICENSE). All shipped code and eventual excitation content must be
-project-owned.
+GPL-3.0-or-later — see the repository's [`LICENSE`](../../LICENSE). All shipped code and eventual
+excitation content must be project-owned.

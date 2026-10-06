@@ -5,7 +5,8 @@
 //! Every other plugin in the collection that renders off the audio thread schedules onto
 //! `AsyncExecutor::execute_background`, and this one started there too. It crashed hosts, and
 //! `clap-validator` reproduced it on `param-set-events`. The mechanism is in
-//! `vendor/nice-plug/src/event_loop/background_thread.rs` and it is not a length problem:
+//! the nice-plug fork's `src/event_loop/background_thread.rs` (mxm-audio/nice-plug) and it is not
+//! a length problem:
 //!
 //! 1. The worker thread is **shared by every instance of the plugin in the process**, and a task
 //!    carries a `Weak` reference to the instance that scheduled it.

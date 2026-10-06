@@ -284,11 +284,11 @@ impl MetalBank {
     /// Each square is the trivial ±1 pulse at its duty with both edges repaired by the four-point
     /// (third-order B-spline) PolyBLEP residual of Välimäki, Pekonen and Nam, "Perceptually informed
     /// synthesis of bandlimited classical waveforms using integrated polynomial interpolation"
-    /// (JASA 2012, Table VII), as `docs/oscillators/02-antialiasing.md` §2.6.2 gives it. The trivial
-    /// squares folded partials back into the hats' 5–14 kHz band only 9.6 dB under the true lines;
-    /// the four-point residual puts them 45 dB under, at 1.7 dB of top-octave droop. Correcting two
-    /// samples ahead of each edge delays the bank by two samples, which a free-running source
-    /// cannot show.
+    /// (JASA 2012, Table VII), as mxm-kit's `docs/oscillators/02-antialiasing.md` §2.6.2 gives it.
+    /// The trivial squares folded partials back into the hats' 5–14 kHz band only 9.6 dB under
+    /// the true lines; the four-point residual puts them 45 dB under, at 1.7 dB of top-octave
+    /// droop. Correcting two samples ahead of each edge delays the bank by two samples, which a
+    /// free-running source cannot show.
     #[inline]
     #[must_use]
     pub fn tick(&mut self, sample_rate: f32, pitch_semitones: f32) -> Frame {
