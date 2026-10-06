@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "_comment": [
+    "The global master and two shared LFO configurations fit existing collection roles.",
+    "Per-slot roles wait for a scoped-controller standard; no proxy parameters or hardware-panel",
+    "layout are implied by this deliberately sparse map. Parameters use permanent ids."
+  ],
+  "instruments": [
+    {
+      "clap_id": "dk.mxm.mxm-drum-machine",
+      "name": "mxm-drum-machine",
+      "params": {
+        "voice.output": "master",
+        "lfo1.rate": "lfo1_rate",
+        "lfo1.shape": "lfo1_shape",
+        "lfo2.rate": "lfo2_rate",
+        "lfo2.shape": "lfo2_shape"
+      }
+    }
+  ]
+}

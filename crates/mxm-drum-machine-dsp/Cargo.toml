@@ -1,0 +1,31 @@
+[package]
+name = "mxm-drum-machine-dsp"
+description = "Framework-free DSP and model catalogue for mxm-drum-machine"
+version.workspace = true
+edition.workspace = true
+# Both runtime dependencies are themselves dependency-free at this floor. This crate has no GUI
+# or plugin-framework types and is verified separately on the declared MSRV before release.
+rust-version = "1.87"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+mxm-modulation.workspace = true
+mxm-part-routing.workspace = true
+
+[features]
+# `src/conformance.rs`: this instrument's routing as the modulation standard checks it. Enable it
+# only from `[dev-dependencies]` — the plugin's tests hold its route readings to it — so no shipped
+# graph carries it.
+conformance = ["mxm-modulation/conformance"]
+
+[dev-dependencies]
+# The modulation standard's checks, for this crate's own tests (`src/conformance.rs`).
+mxm-modulation = { workspace = true, features = ["conformance"] }
+mxm-measure.workspace = true
+mxm-audio-file.workspace = true
+# The A/B comparison example decodes the hardware recordings, trims and loudness-matches through the
+# listener (`crates/mxm-listening`), and reads their mapping; none of it enters the shipped graph.
+mxm-listening.workspace = true
+serde_json = "=1.0.145"

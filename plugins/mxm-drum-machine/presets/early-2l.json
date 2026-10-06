@@ -1,0 +1,1138 @@
+{
+  "schema_version": 1,
+  "plugin": "dk.mxm.mxm-drum-machine",
+  "name": "Early 2L",
+  "category": "template",
+  "_comment": "`v` is the value and is authoritative. `text` is this plugin's own formatting of it, kept so the file can be read, and is never loaded.",
+  "params": {
+    "attack_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "attack_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "body_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "character_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "choke_group_1": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_10": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_11": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_12": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_13": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_14": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_15": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_16": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_2": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_3": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_4": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_5": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_6": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_7": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_8": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "choke_group_9": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "decay_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "decay_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "dynamics_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "level_1": {
+      "v": 0.8821553,
+      "text": "0.0 dB"
+    },
+    "level_10": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_11": {
+      "v": 0.71561867,
+      "text": "-10.0 dB"
+    },
+    "level_12": {
+      "v": 0.71561867,
+      "text": "-10.0 dB"
+    },
+    "level_13": {
+      "v": 0.6862438,
+      "text": "-12.0 dB"
+    },
+    "level_14": {
+      "v": 0.7462281,
+      "text": "-8.0 dB"
+    },
+    "level_15": {
+      "v": 0.7462281,
+      "text": "-8.0 dB"
+    },
+    "level_16": {
+      "v": 0.71561867,
+      "text": "-10.0 dB"
+    },
+    "level_2": {
+      "v": 0.8821553,
+      "text": "0.0 dB"
+    },
+    "level_3": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_4": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_5": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_6": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_7": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_8": {
+      "v": 0.7781278,
+      "text": "-6.0 dB"
+    },
+    "level_9": {
+      "v": 0.7462281,
+      "text": "-8.0 dB"
+    },
+    "lfo1_rate": {
+      "v": 0.27322546,
+      "text": "0.70 Hz"
+    },
+    "lfo1_shape": {
+      "v": 0.0,
+      "text": "Sine"
+    },
+    "lfo1_sync": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "lfo2_rate": {
+      "v": 0.3500546,
+      "text": "1.30 Hz"
+    },
+    "lfo2_shape": {
+      "v": 0.2,
+      "text": "Triangle"
+    },
+    "lfo2_sync": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "lfo3_rate": {
+      "v": 0.54135454,
+      "text": "4.00 Hz"
+    },
+    "lfo3_shape": {
+      "v": 0.0,
+      "text": "Sine"
+    },
+    "lfo3_sync": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "master": {
+      "v": 0.8821553,
+      "text": "0.0 dB"
+    },
+    "model_1": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "model_10": {
+      "v": 0.36862746,
+      "text": "Early wire brush"
+    },
+    "model_11": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "model_12": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "model_13": {
+      "v": 0.36078432,
+      "text": "Early cymbal"
+    },
+    "model_14": {
+      "v": 0.34901962,
+      "text": "Early cowbell"
+    },
+    "model_15": {
+      "v": 0.3529412,
+      "text": "Early clave"
+    },
+    "model_16": {
+      "v": 0.3647059,
+      "text": "Early maraca"
+    },
+    "model_2": {
+      "v": 0.35686275,
+      "text": "Early snare"
+    },
+    "model_3": {
+      "v": 0.3372549,
+      "text": "Early low conga"
+    },
+    "model_4": {
+      "v": 0.34117648,
+      "text": "Early high conga"
+    },
+    "model_5": {
+      "v": 0.34509805,
+      "text": "Early high bongo"
+    },
+    "model_6": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "model_7": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "model_8": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "model_9": {
+      "v": 0.33333334,
+      "text": "Early transistor kick"
+    },
+    "mute_1": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_10": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_11": {
+      "v": 1.0,
+      "text": "On"
+    },
+    "mute_12": {
+      "v": 1.0,
+      "text": "On"
+    },
+    "mute_13": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_14": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_15": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_16": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_2": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_3": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_4": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_5": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "mute_6": {
+      "v": 1.0,
+      "text": "On"
+    },
+    "mute_7": {
+      "v": 1.0,
+      "text": "On"
+    },
+    "mute_8": {
+      "v": 1.0,
+      "text": "On"
+    },
+    "mute_9": {
+      "v": 1.0,
+      "text": "On"
+    },
+    "noise_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "noise_decay_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pan_1": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_10": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_11": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_12": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_13": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_14": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_15": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_16": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_2": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_3": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_4": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_5": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_6": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_7": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_8": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pan_9": {
+      "v": 0.5,
+      "text": "Centre"
+    },
+    "pitch_1": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_10": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_11": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_12": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_13": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_14": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_15": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_16": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_2": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_3": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_4": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_5": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_6": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_7": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_8": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_9": {
+      "v": 0.5,
+      "text": "0.00 st"
+    },
+    "pitch_decay_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_decay_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "pitch_env_9": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "solo_1": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_10": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_11": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_12": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_13": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_14": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_15": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_16": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_2": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_3": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_4": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_5": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_6": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_7": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_8": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "solo_9": {
+      "v": 0.0,
+      "text": "Off"
+    },
+    "tone_1": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_10": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_11": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_12": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_13": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_14": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_15": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_16": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_2": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_3": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_4": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_5": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_6": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_7": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_8": {
+      "v": 0.5,
+      "text": "0"
+    },
+    "tone_9": {
+      "v": 0.5,
+      "text": "0"
+    }
+  },
+  "state": null
+}
