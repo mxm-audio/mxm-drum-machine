@@ -8,6 +8,9 @@ section 7 is how to move a model the last hundred hertz once it is already close
 most of the work went. Its last part, *Acoustic drum models in particular*, is what fine-tuning
 `mxm-model-drums`' physical models against acoustic recordings added in 2026-09.
 
+*mxm-model-drums is private until it is released (the owner, 2026-10-06), so the links into it
+below work only for the maintainer.*
+
 This is a howto and owns no rules. What a model may and may not do is
 [`crates/mxm-drum-machine-dsp/AGENTS.md`](../crates/mxm-drum-machine-dsp/AGENTS.md), and for the
 acoustic models [`crates/mxm-model-drums-dsp/AGENTS.md`](https://github.com/mxm-audio/mxm-model-drums/blob/main/crates/mxm-model-drums-dsp/AGENTS.md). What may cross

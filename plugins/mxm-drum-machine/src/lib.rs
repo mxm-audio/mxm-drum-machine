@@ -33,9 +33,22 @@ use mxm_part_routing::{
     Destination, FixedChannelCollision, MonophonicArbitrator, NoteAddress, NoteCandidate,
     NoteOwner, PartAssignment, assignment_matches, claimed_channels,
 };
+use nice_plug::midi::{Channel, Key, VoiceID};
 use nice_plug::prelude::*;
 
 use params::MxmDrumMachineParams;
+
+/// A note's identity in the shape the voice logic was written for. nice-plug 0.4 types it
+/// (`VoiceID`, `Channel`, `Key`, each with a wildcard); 0.3 handed over a host's wildcard (-1) as
+/// 255 and a missing voice id as `None`. Converting here keeps every note decision, and every
+/// recorded render, exactly what it was before the upgrade.
+fn legacy_note(voice_id: VoiceID, channel: Channel, key: Key) -> (Option<i32>, u8, u8) {
+    (
+        voice_id.id(),
+        channel.number().unwrap_or(u8::MAX),
+        key.number().unwrap_or(u8::MAX),
+    )
+}
 
 const INTERNAL_BLOCK: usize = 64;
 const NUM_CHANNELS: usize = 16;
@@ -280,10 +293,11 @@ impl EventGroup {
             NoteEvent::NoteOn {
                 voice_id,
                 channel,
-                note,
+                key,
                 velocity,
                 ..
             } if velocity.is_finite() && velocity > 0.0 => {
+                let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
                 self.push_note_on(NoteCandidate {
                     owner: NoteOwner {
                         channel,
@@ -296,32 +310,35 @@ impl EventGroup {
             NoteEvent::NoteOn {
                 voice_id,
                 channel,
-                note,
+                key,
                 ..
             }
             | NoteEvent::NoteOff {
                 voice_id,
                 channel,
-                note,
+                key,
                 ..
             } => {
+                let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
                 self.push_local(PartEvent::Off(note_address(channel, note, voice_id)));
             }
             NoteEvent::Choke {
                 voice_id,
                 channel,
-                note,
+                key,
                 ..
             } => {
+                let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
                 self.push_local(PartEvent::Choke(note_address(channel, note, voice_id)));
             }
             NoteEvent::PolyTuning {
                 voice_id,
                 channel,
-                note,
+                key,
                 tuning,
                 ..
             } if tuning.is_finite() => {
+                let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
                 self.push_local(PartEvent::Tuning {
                     address: note_address(channel, note, voice_id),
                     semitones: tuning.clamp(-48.0, 48.0),
@@ -1048,9 +1065,9 @@ mod tests {
     fn note_on_as(channel: u8, note: u8, voice_id: Option<i32>, velocity: f32) -> NoteEvent<()> {
         NoteEvent::NoteOn {
             timing: 0,
-            voice_id,
-            channel,
-            note,
+            voice_id: voice_id.map_or(VoiceID::Wildcard, VoiceID::ID),
+            channel: Channel::Number(channel),
+            key: Key::Number(note),
             velocity,
         }
     }
@@ -1194,9 +1211,9 @@ mod tests {
         chord.collect(note_on_as(0, 62, Some(4), 0.8));
         chord.collect(NoteEvent::PolyTuning {
             timing: 0,
-            voice_id: Some(3),
-            channel: 0,
-            note: 64,
+            voice_id: VoiceID::ID(3),
+            channel: Channel::Number(0),
+            key: Key::Number(64),
             tuning: 0.35,
         });
         let resolved = plugin.resolve_events(&chord);
@@ -1227,9 +1244,9 @@ mod tests {
         let mut reversed = EventGroup::new();
         reversed.collect(NoteEvent::PolyTuning {
             timing: 0,
-            voice_id: Some(3),
-            channel: 0,
-            note: 64,
+            voice_id: VoiceID::ID(3),
+            channel: Channel::Number(0),
+            key: Key::Number(64),
             tuning: 0.35,
         });
         reversed.collect(note_on_as(0, 62, Some(4), 0.8));
@@ -1354,9 +1371,9 @@ mod tests {
         let mut choke = EventGroup::new();
         choke.collect(NoteEvent::Choke {
             timing: 0,
-            voice_id: Some(10),
-            channel: 0,
-            note: 60,
+            voice_id: VoiceID::ID(10),
+            channel: Channel::Number(0),
+            key: Key::Number(60),
         });
         assert_eq!(plugin.resolve_events(&choke).chokes, 0);
         assert_eq!(plugin.owner[0].unwrap().note_id, Some(11));
@@ -1391,9 +1408,9 @@ mod tests {
     fn note_off(channel: u8, note: u8, voice_id: Option<i32>) -> NoteEvent<()> {
         NoteEvent::NoteOff {
             timing: 0,
-            voice_id,
-            channel,
-            note,
+            voice_id: voice_id.map_or(VoiceID::Wildcard, VoiceID::ID),
+            channel: Channel::Number(channel),
+            key: Key::Number(note),
             velocity: 0.0,
         }
     }
@@ -1401,18 +1418,18 @@ mod tests {
     fn choke(channel: u8, note: u8, voice_id: Option<i32>) -> NoteEvent<()> {
         NoteEvent::Choke {
             timing: 0,
-            voice_id,
-            channel,
-            note,
+            voice_id: voice_id.map_or(VoiceID::Wildcard, VoiceID::ID),
+            channel: Channel::Number(channel),
+            key: Key::Number(note),
         }
     }
 
     fn poly_tuning(channel: u8, note: u8, voice_id: Option<i32>, tuning: f32) -> NoteEvent<()> {
         NoteEvent::PolyTuning {
             timing: 0,
-            voice_id,
-            channel,
-            note,
+            voice_id: voice_id.map_or(VoiceID::Wildcard, VoiceID::ID),
+            channel: Channel::Number(channel),
+            key: Key::Number(note),
             tuning,
         }
     }
@@ -1716,6 +1733,7 @@ mod identity {
 mod full_layout {
     use std::collections::VecDeque;
 
+    use nice_plug::context::process::SendEventError;
     use nice_plug::params::InternalParamMut;
 
     use super::*;
@@ -1741,6 +1759,8 @@ mod full_layout {
     }
 
     impl ProcessContext<MxmDrumMachine> for Events {
+        // A test double has no host to ask for a restart (nice-plug 0.4).
+        fn request_restart(&self) {}
         fn plugin_api(&self) -> PluginApi {
             PluginApi::Clap
         }
@@ -1755,7 +1775,12 @@ mod full_layout {
         fn next_event(&mut self) -> Option<NoteEvent<()>> {
             self.events.pop_front()
         }
-        fn send_event(&mut self, _event: NoteEvent<()>) {}
+        fn try_send_event(
+            &mut self,
+            _event: NoteEvent<()>,
+        ) -> Result<(), (NoteEvent<()>, SendEventError)> {
+            Ok(())
+        }
         fn set_latency_samples(&self, _samples: u32) {}
         fn set_current_voice_capacity(&self, _capacity: u32) {}
     }
@@ -2264,9 +2289,9 @@ mod full_layout {
                 .iter()
                 .map(|&note| NoteEvent::NoteOn {
                     timing: 0,
-                    voice_id: None,
-                    channel: 0,
-                    note,
+                    voice_id: VoiceID::Wildcard,
+                    channel: Channel::Number(0),
+                    key: Key::Number(note),
                     velocity: 0.8,
                 })
                 .collect();

@@ -579,6 +579,16 @@ live in the app bar*, above.)*
 
 ## Verification evidence
 
+### clap-validator's parameter fuzz on a debug bundle (2026-10-06)
+
+The release bundle passes `clap-validator` 35/35, which is the check this plugin's Verification
+asks for. A **debug** bundle times out on `param-fuzz-basic` (clap-validator's 45-second limit),
+because the fuzz sets every one of the plugin's thousands of parameters and processes audio in an
+unoptimised build. It sat close to the limit already: 32–33 s on nice-plug 0.3.0, and over 45 s
+after the fork's refresh onto 0.4.2. Release is unaffected: 2.93–3.04 s on 0.3.0 and 2.88–2.89 s
+on 0.4.2, three runs each. Not fixed on purpose: the owner plans to lower the parameter count, the
+way mxm-model-drums did, which removes the cause.
+
 ### The pre-D7 compatibility fixture
 
 `host-tests/tests/fixtures/mxm-drum-machine-pre-d7/` is project-generated D7 compatibility evidence:

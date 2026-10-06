@@ -2530,6 +2530,8 @@ mod tests {
     }
 
     impl nice_plug::context::gui::GuiContextInner for RecordingHost {
+        // A test double has no host to ask for a restart (nice-plug 0.4).
+        fn request_restart(&self) {}
         fn plugin_api(&self) -> nice_plug::prelude::PluginApi {
             nice_plug::prelude::PluginApi::Clap
         }
