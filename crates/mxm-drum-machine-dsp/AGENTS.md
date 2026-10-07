@@ -66,6 +66,10 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
   slots. The plugin fills it from four route slots a drum (since 2026-10-07; the grid is
   unchanged). Three kit-wide LFOs run once per sample and always free-run. A newly needed source is
   cleared before its first read; an absent route keeps its amount.
+- **A strike reads the routed patch** (2026-10-07), with that hit's Velocity and Random and the
+  last sample's LFOs, Wheel and Pressure; then routes apply per sample as before. A control a circuit
+  reads only at the strike is otherwise out of every route's reach
+  (`a_route_reaches_a_control_read_only_at_the_strike`).
 - Every route is the collection's standard: Amplitude (`level`) is the standard factor, Velocity is
   `v − 1`. `conformance.rs`'s `Declared` runs the checks; the plugin holds its route amount's travel
   to `Declared`'s offers (`conformance`). Randomness is seeded; the plugin resolves LFO rates and
@@ -110,6 +114,9 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
   (`a_capture_fits_a_one_megabyte_stack`).
 - `CaptureVoice`: pitch is a playback rate and Decay only shortens; `READERS_PER_SLOT` readers,
   stealing the oldest. The off-unity interpolator's cost is owed a measurement.
+- **Only a model with Tune follows pitch frozen** (2026-10-07): a capture records
+  `Capabilities::pitch`, and `SlotCapture::playback_semitones` is zero without it, as live
+  (`a_frozen_hit_follows_pitch_only_where_its_model_has_tune`). The pack reads the same rate.
 
 ## Events, dependencies and realtime ([NOTES.md § Events](NOTES.md#events-dependencies-and-realtime-rules))
 

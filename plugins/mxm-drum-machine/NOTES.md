@@ -361,6 +361,13 @@ velocity curve, `velocity::curve`); Soft hits drew disabled there until this cha
   the strike (Attack, Soft hits, Noise on models 1–10) does nothing, because routes reach the patch
   per sample after the trigger has read it; the maraca's and claps' Noise (now Gain) meets the
   output's hard limit inside the normal range.
+  *Fixed later the same day, at the owner's word ("do the two drum fixes"): the first two.* A capture
+  records whether its model has Tune and plays at its captured rate without it, whatever Tune, a
+  chromatic key, bend or a route hold, as the live model does; the sample pack reads the same rate.
+  The strike now reads the routed patch, so a route reaches a control read only at the strike. The
+  same-sound digests before and after differ only in *Init / routes*, the scenario that adds routes:
+  Init, the nine audition kits and the fifty creative kits are unchanged. The limiter stays the
+  owner's call.
 
 **Each model's names** (`print_the_control_table`, an ignored test that prints both tables from
 `editor::controls`; — is not drawn):
@@ -1341,7 +1348,9 @@ The owner's rule for the move was *same sound, bit-identical on Windows*. Three 
   Early 2L / as-is: 9eed8daa51434951      Early 2L / moved: aab983c6b37be73b
   ```
 
-  These are a dated record, not a pin: a deliberate model change moves them.
+  These are a dated record, not a pin: a deliberate model change moves them. *Since the strike
+  began reading the routed patch (2026-10-07, § [Each model's controls](#each-models-controls-2026-10-07))*,
+  `Init / routes` reads `36d546fb60f8cb90`; every other line above is unchanged.
 - **The kits themselves**: each rewritten file holds every one of its 282 old values under the new ID
   the mapping gives it, `v` and `text` unchanged, plus Controls 12–20 at their defaults (144), checked
   against the files as committed before the move.

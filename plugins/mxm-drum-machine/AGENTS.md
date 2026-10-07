@@ -144,7 +144,7 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   never in `process`; a failed capture leaves the instrument live.
 - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
   sound. To change a frozen kit: off, edit, on. Tune, Decay and Soft hits (Controls 1, 2 and 5)
-  stay live as playback controls.
+  stay live as playback controls; Tune, a key and bend only on a model that has Tune, as live.
 - Running toggles go to `capture_worker::CaptureWorker`, one thread per instance joined in its
   `Drop`. **Never use nice-plug's `AsyncExecutor::execute_background`; `task_executor` stays a no-op.**
 - `service_captures` is a pointer swap with no allocation, lock or drop. `CaptureBank` hands kits
