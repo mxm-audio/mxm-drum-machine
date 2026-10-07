@@ -373,6 +373,9 @@ struct Slot {
     economy: EconomyVoice,
     legacy: LegacyVoice,
     routing: Graph,
+    /// The route sources of the last rendered sample, so a strike can read its routes before the
+    /// next sample publishes them (`Engine::trigger_group`).
+    sources: Sources,
     output: DestinationRouter,
     /// Plays this slot's frozen one-shot while Resample is engaged (plan §4.7). Preallocated with
     /// the slot, like every voice here, so engaging allocates nothing.
@@ -431,6 +434,7 @@ impl Slot {
             metal_blend: 0.0,
             metal_pitch: 0.0,
             routing: Graph::new(),
+            sources: Sources::default(),
             output: DestinationRouter::new(Destination::Main, 96),
             capture_voice: crate::capture::CaptureVoice::new(),
             sounding: false,
@@ -875,6 +879,23 @@ impl Engine {
             slot.velocity = triggers.velocities[index];
             self.random_state = xorshift64(self.random_state);
             slot.random = hash_bipolar(self.random_state);
+            // **The strike reads the routed patch** (2026-10-07). Several circuits read a control
+            // only here — Attack, Soft hits and Noise on models 1–10, the pitch of a struck tone —
+            // and routes used to reach the patch only per sample, after the strike had read it,
+            // so a route on such a control did nothing. Velocity and Random are this hit's own;
+            // the LFOs, Wheel and Pressure are the last rendered sample's.
+            let routed;
+            let patch = if self.routing[index].any() {
+                slot.sources.velocity = standard::velocity(slot.velocity);
+                slot.sources.random = slot.random;
+                slot.routing.publish(&self.routing[index], slot.sources);
+                let mut with_routes = *patch;
+                apply_routes(&mut with_routes, &slot.routing, &self.routing[index]);
+                routed = with_routes;
+                &routed
+            } else {
+                patch
+            };
             // Frozen, the hit starts a reader over this slot's capture and the circuit below is
             // left alone. Velocity scales the buffer, because the capture was taken at one strike
             // and the model's own velocity law is inside it — plan §4.7's named loss — on the
@@ -1141,20 +1162,18 @@ impl Engine {
             let mut patch = *base_patch;
             let routing = &self.routing[index];
             if routing.any() {
-                slot.routing.publish(
-                    routing,
-                    Sources {
-                        lfo1: lfo[0],
-                        lfo2: lfo[1],
-                        lfo3: lfo[2],
-                        // The performance sources through the collection's standard, each zero
-                        // at its rest: Velocity at the hardest hit.
-                        wheel: standard::wheel(finite_or(modulation.wheel[index], 0.0)),
-                        pressure: standard::pressure(finite_or(modulation.pressure[index], 0.0)),
-                        velocity: standard::velocity(slot.velocity),
-                        random: slot.random,
-                    },
-                );
+                slot.sources = Sources {
+                    lfo1: lfo[0],
+                    lfo2: lfo[1],
+                    lfo3: lfo[2],
+                    // The performance sources through the collection's standard, each zero
+                    // at its rest: Velocity at the hardest hit.
+                    wheel: standard::wheel(finite_or(modulation.wheel[index], 0.0)),
+                    pressure: standard::pressure(finite_or(modulation.pressure[index], 0.0)),
+                    velocity: standard::velocity(slot.velocity),
+                    random: slot.random,
+                };
+                slot.routing.publish(routing, slot.sources);
                 apply_routes(&mut patch, &slot.routing, routing);
             }
             // Two slots cannot ask one physical bank for two tunings, so a creative deviation
@@ -2134,6 +2153,48 @@ mod tests {
             }
         }
         panic!("the paired kick never sounded");
+    }
+
+    #[test]
+    fn a_route_reaches_a_control_read_only_at_the_strike() {
+        // Attack, Soft hits and Noise on models 1–10 are read when the hit starts and never again,
+        // so a route reaches them only if the strike reads the routed patch (2026-10-07).
+        let render = |model: ModelId, target: Option<usize>| {
+            let mut patches = [SlotPatch::default(); SLOT_COUNT];
+            patches[0].model = model;
+            let mut engine = Engine::new();
+            engine.prepare(&patches);
+            if let Some(target) = target {
+                let mut routing = Routing::new();
+                routing.present[target][routing::source::VELOCITY] = true;
+                routing.amounts[target][routing::source::VELOCITY] = 1.0;
+                routing.compact();
+                engine.set_slot_routing(0, routing);
+            }
+            let mut trigger = TriggerGroup::new();
+            trigger.push(0, 0.4);
+            engine.trigger_group(&patches, trigger);
+            (0..2_048)
+                .map(|_| engine.process_modulated(&patches, ModulationPatch::default()))
+                .collect::<Vec<_>>()
+        };
+        for model in (1..=10).map(ModelId::new) {
+            let reads = model.capabilities();
+            let bare = render(model, None);
+            for (name, target, read) in [
+                ("Attack", routing::target::ATTACK, reads.attack),
+                ("Soft hits", routing::target::DYNAMICS, reads.dynamics),
+                ("Noise", routing::target::NOISE, reads.noise),
+            ] {
+                if read {
+                    assert_ne!(
+                        render(model, Some(target)),
+                        bare,
+                        "model {model:?}: a Velocity route on {name} changed nothing"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

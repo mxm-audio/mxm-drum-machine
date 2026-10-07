@@ -118,8 +118,9 @@ pub fn one_shot(
         Retrigger::Restart,
         sample_rate,
     );
-    // Pitching down lengthens the read, so the buffer cannot be sized from the capture alone.
-    let rate = 2.0_f32.powf(patch.pitch_semitones / 12.0);
+    // Pitching down lengthens the read, so the buffer cannot be sized from the capture alone. The
+    // rate is the reader's own: a model without Tune plays at its captured rate.
+    let rate = 2.0_f32.powf(slot_capture.playback_semitones(patch.pitch_semitones) / 12.0);
     let bound = ((slot_capture.len() as f32 / rate.max(0.01)).ceil() as usize) + 1;
     let mut out = Vec::with_capacity(bound);
     while voice.is_active() && out.len() < bound {

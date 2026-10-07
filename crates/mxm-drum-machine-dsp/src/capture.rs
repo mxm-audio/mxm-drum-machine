@@ -103,6 +103,7 @@ pub struct SlotCapture {
     truncated: bool,
     peak: f32,
     decay: f32,
+    follows_pitch: bool,
 }
 
 impl SlotCapture {
@@ -138,6 +139,21 @@ impl SlotCapture {
     #[must_use]
     pub const fn decay(&self) -> f32 {
         self.decay
+    }
+
+    /// The playback rate, in semitones, a frozen hit is read at for the slot's `pitch_semitones`.
+    ///
+    /// **Only a model with Tune follows it** (2026-10-07). Live, a model without one
+    /// (`Capabilities::pitch`) reads none of Tune, a chromatic key, bend or tuning, so its frozen
+    /// hit reads none of them either: a value with no knob to see it once moved a frozen hat. The
+    /// capture remembers its model's answer, because a Model edit while frozen renders nothing.
+    #[must_use]
+    pub const fn playback_semitones(&self, pitch_semitones: f32) -> f32 {
+        if self.follows_pitch {
+            pitch_semitones
+        } else {
+            0.0
+        }
     }
 
     /// The capture's length in frames.
@@ -406,6 +422,8 @@ impl KitCaptureInProgress {
         let cap = self.cap;
         // Copied out before the closure borrows `self` mutably for its buffers.
         let decays: [f32; SLOT_COUNT] = core::array::from_fn(|slot| self.patches[slot].decay);
+        let follows_pitch: [bool; SLOT_COUNT] =
+            core::array::from_fn(|slot| self.patches[slot].model.capabilities().pitch);
         let slots = core::array::from_fn(|slot| {
             let mut samples = std::mem::take(&mut self.buffers[slot]);
             // The pass runs until the *last* slot goes quiet, so a short rim would otherwise
@@ -428,6 +446,7 @@ impl KitCaptureInProgress {
                 truncated: cut,
                 peak,
                 decay: decays[slot],
+                follows_pitch: follows_pitch[slot],
             }
         });
         KitCapture {
@@ -583,7 +602,8 @@ impl CaptureVoice {
         self.readers.iter().any(|r| r.active)
     }
 
-    /// Renders one frame, at `pitch_semitones` of playback rate.
+    /// Renders one frame, at `pitch_semitones` of playback rate when the capture's model has Tune
+    /// ([`SlotCapture::playback_semitones`]).
     ///
     /// Pitch is a clock: rate and duration move together, as on any sampler and as §3.4's
     /// PCM-metal row already describes for the one family that was always a clocked capture.
@@ -592,6 +612,7 @@ impl CaptureVoice {
         if capture.is_empty() {
             return 0.0;
         }
+        let pitch_semitones = capture.playback_semitones(pitch_semitones);
         let rate = f64::from(2.0_f32.powf(pitch_semitones / 12.0));
         let samples = capture.samples();
         let mut sum = 0.0_f32;
@@ -1085,6 +1106,37 @@ mod reader_tests {
     }
 
     #[test]
+    fn a_frozen_hit_follows_pitch_only_where_its_model_has_tune() {
+        // Live, a model without Tune reads no pitch at all, so its frozen hit plays the capture
+        // as it is whatever the slot's pitch holds: Tune, a chromatic key, bend or a route. Sixteen
+        // models a kit, so the catalogue is six captures.
+        let models: Vec<ModelId> = (1..=94).map(ModelId::new).collect();
+        for chunk in models.chunks(SLOT_COUNT) {
+            let mut patches = [SlotPatch::default(); SLOT_COUNT];
+            for (patch, &model) in patches.iter_mut().zip(chunk) {
+                patch.model = model;
+            }
+            let kit = capture_kit(&patches, 48_000.0).expect("a kit");
+            for (slot, &model) in chunk.iter().enumerate() {
+                let capture = kit.slot(slot);
+                assert!(!capture.is_empty(), "model {model:?} captured nothing");
+                let mut at_reference = CaptureVoice::new();
+                let mut pitched = CaptureVoice::new();
+                at_reference.trigger(capture, 1.0, 0.0, Retrigger::Restart, 48_000.0);
+                pitched.trigger(capture, 1.0, 0.0, Retrigger::Restart, 48_000.0);
+                let frames = capture.len().min(4_800);
+                let same = render(&mut at_reference, capture, 0.0, frames)
+                    == render(&mut pitched, capture, 7.0, frames);
+                assert_eq!(
+                    same,
+                    !model.capabilities().pitch,
+                    "model {model:?}: a frozen hit follows pitch exactly when the model has Tune"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn decay_shortens_and_never_lengthens() {
         // The owner's ruling, held as arithmetic: a negative axis ends the hit sooner, and a
         // positive one cannot reach past the end of the buffer, so it changes nothing.
@@ -1174,6 +1226,7 @@ mod reader_tests {
             truncated: false,
             peak: 0.0,
             decay: 0.0,
+            follows_pitch: true,
         };
         let mut voice = CaptureVoice::new();
         voice.trigger(&empty, 1.0, 0.0, Retrigger::Restart, 48_000.0);
