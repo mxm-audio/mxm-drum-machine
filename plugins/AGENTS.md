@@ -40,12 +40,16 @@ machine only lives in its own `AGENTS.md` below.
   shared routing (`mxm-modulation`, `mxm-modulation-params`), with a source chosen on the card it
   moves. A target is named for what it moves, one per parameter unless the law differs; the
   standard reach for added performance paths; a standard *Amplitude* target; prove it with
-  `mxm_modulation::conformance` and `routing_checks`.
+  `mxm_modulation::conformance` and `routing_checks`. *Deviation:* mxm-drum-machine's four route
+  slots a drum carry no parameter per pair, so `routing_checks` does not apply (the owner,
+  2026-09-30 and 2026-10-07; its `AGENTS.md`).
 - **Smoothing** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#smooth-signals-not-coefficients)): smooth what is added to or
   multiplies the audio (5–20 ms), never a coefficient: envelope and glide times stay unsmoothed.
 - **Permanent identifiers** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#permanent-identifiers--never-change-these)): the
   `CLAP_ID` is `dk.mxm.<plugin>`, assembled from `plugin_name!`; a parameter `#[id]` is never
-  changed or reused. Both are public interface.
+  changed or reused. Both are public interface. *Deviation:* mxm-drum-machine's parameter IDs are
+  free to change during pre-alpha; the freeze applies from its first release (the owner,
+  2026-10-07; its `AGENTS.md`).
 - **nice-plug, not nih-plug** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#this-is-nice-plug-not-nih-plug)): `activate`, an
   associated `type Editor`, `nice_export_clap!`; declare `CLAP_FEATURES` and `AUDIO_IO_LAYOUTS`.
 - **Parameters** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#parameters)): gain stores linear gain; skewed ranges for frequency,
@@ -110,4 +114,4 @@ clap-validator validate "target/bundled/mxm-drum-machine.clap"
 
 | Doc | Scope |
 |---|---|
-| [`mxm-drum-machine/AGENTS.md`](mxm-drum-machine/AGENTS.md) | Original sixteen-slot drum instrument over an append-only pool of machine-specific circuits; all 94 admitted models owner listening-approved, Kit or chromatic MIDI per slot, stereo main plus sixteen mono outputs, nine source-family audition presets on one canonical role map |
+| [`mxm-drum-machine/AGENTS.md`](mxm-drum-machine/AGENTS.md) | Original sixteen-slot drum instrument over an append-only pool of machine-specific circuits; all 94 admitted models owner listening-approved; mxm-model-drums' parameter scheme (twenty general controls and four route slots a slot, 651 parameters, IDs free during pre-alpha); Kit or chromatic MIDI per slot, stereo main plus sixteen mono outputs, nine source-family audition presets on one canonical role map |

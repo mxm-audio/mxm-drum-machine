@@ -14,12 +14,12 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
   - [Falling drums, rim and clave](#falling-drums-rim-and-clave)
   - [Maraca and clap](#maraca-and-clap)
   - [The metal batch](#the-metal-batch)
-- [Permanent parameter and routing surface](#permanent-parameter-and-routing-surface)
-  - [Slot parameters and their ids](#slot-parameters-and-their-ids)
+- [Parameter and routing surface](#parameter-and-routing-surface)
+  - [The move to general controls and route slots (2026-10-07)](#the-move-to-general-controls-and-route-slots-2026-10-07)
   - [Choke groups, instance settings, Mute and Solo](#choke-groups-instance-settings-mute-and-solo)
   - [Model values](#model-values)
-  - [Globals, the three LFOs and the per-slot route grid](#globals-the-three-lfos-and-the-per-slot-route-grid)
-  - [The retired global route ids](#the-retired-global-route-ids)
+  - [Globals and the three LFOs](#globals-and-the-three-lfos)
+  - [The surface before 2026-10-07](#the-surface-before-2026-10-07)
 - [Interface](#interface)
   - [Layout, cards and the app bar](#layout-cards-and-the-app-bar)
   - [Labels and help text](#labels-and-help-text)
@@ -33,7 +33,9 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
 - [The sample pack — pack.rs](#the-sample-pack--packrs)
 - [Realtime](#realtime)
 - [Verification evidence](#verification-evidence)
-  - [The pre-D7 compatibility fixture](#the-pre-d7-compatibility-fixture)
+  - [clap-validator's parameter fuzz on a debug bundle (2026-10-06)](#clap-validators-parameter-fuzz-on-a-debug-bundle-2026-10-06)
+  - [The same sound through the move to general controls (2026-10-07)](#the-same-sound-through-the-move-to-general-controls-2026-10-07)
+  - [The recorded-kit fixture, once the pre-D7 compatibility fixture](#the-recorded-kit-fixture-once-the-pre-d7-compatibility-fixture)
   - [The editor's standard and tree checks](#the-editors-standard-and-tree-checks)
   - [What the tests cover](#what-the-tests-cover)
 
@@ -83,12 +85,19 @@ wart that prevents sample-like machine-gun identity; never reset phase/state on 
 
 ### Routes and velocity
 
-**Its routes are the collection's modulation standard** (`plans/plan-modulation-standard.md`):
-every amount is the shared route parameter, `mxm_modulation_params::reading::amount_param`, and the
-`level` routes read **Amplitude** in percent — the standard factor, `+100 %` doubling the level —
-where they read decibels. Their permanent ids stay `route_level_*`.
-`every_route_parameter_says_what_the_dsp_does` holds every pair's travel and reading to
-`mxm_drum_machine_dsp::conformance` (`mxm_plugin_test::routing_checks`).
+**Its routes are the collection's modulation standard** (`plans/plan-modulation-standard.md`): a
+route reaches what the standard reaches — Pitch twelve semitones, the **Amplitude** target the
+standard factor (`+100 %` doubling the level, where it once summed decibels), every other target its
+own bipolar unit — and the DSP crate's `conformance` holds that, unchanged. **Since 2026-10-07 the
+route parameters are four general slots a drum** (§ [the move](#the-move-to-general-controls-and-route-slots-2026-10-07)):
+one amount serves every target, so the host reads it as a percentage of its target's reach, and
+`a_route_amount_travels_what_every_pair_is_offered` holds its travel to every pair's offer. *Until
+then* every pair had its own `mxm_modulation_params::reading::amount_param`, reading in its target's
+unit (the `level` ones in Amplitude percent, under their old ids `route_level_*`), and
+`every_route_parameter_says_what_the_dsp_does` held each pair's travel and reading to
+`mxm_drum_machine_dsp::conformance` through `mxm_plugin_test::routing_checks` — a check that needs a
+parameter per pair, so it is retired with them: a **recorded deviation** from the modulation
+standard's plugin half, as mxm-model-drums' (its brief, *Global and routing IDs*).
 
 **A hit is its own velocity** (owner, 2026-09-20). The machines' common and global accent buses are
 not modelled and there is no accent control; one slot's level never depends on another slot's, and
@@ -154,20 +163,102 @@ The metal batch owns one continuously advancing six-square bank.
   Zero Pitch reads the shared frame, while nonzero Pitch uses a persistent private slot bank and
   rejoins shared phase at zero. Its render was accepted with the complete catalogue on 2026-09-20.
 
-## Permanent parameter and routing surface
+## Parameter and routing surface
 
-### Slot parameters and their ids
+*Titled "Permanent parameter and routing surface" until 2026-10-07: IDs are free to change during
+pre-alpha (below), so nothing here is permanent until the first release.*
 
-All sixteen slots carry Model, Pitch, Pitch envelope, Pitch decay, Decay, Attack, Tone, Body, Noise,
-Noise decay, Character, Dynamics, Level, Pan, Mute and Solo even when the selected model cannot use a
-shaping axis. The additive IDs are `pitch_env_1`…`pitch_env_16`,
-`pitch_decay_1`…`pitch_decay_16` and `noise_decay_1`…`noise_decay_16`; every default is zero and
-preserves the source/reference sound. They are directly automatable slot parameters and each of the
-thirteen continuous slot controls is a routing target. The nice-plug nested-array
-IDs are `<suffix>_<slot>` with one-based slots, including additive `mute_1`…`mute_16`,
-`solo_1`…`solo_16`, `output_1`…`output_16`, `choke_group_1`…`choke_group_16` and
-`midi_channel_1`…`midi_channel_16`. Output is stepped `L+R`, `1`…`16`; MIDI channel is stepped
-`Kit`, `Ch 1`…`Ch 16`; Choke group is stepped `Off`, `1`…`16`.
+### The move to general controls and route slots (2026-10-07)
+
+**The owner's rulings**, in order:
+
+1. **2026-09-30** (the archive's `todo.txt`; `plans/plan-mxm-model-drums-plugin-v1.md` revision 5):
+   the drum machine moves to mxm-model-drums' parameter principle — **"the host holds what the
+   panel can show at once"** — with **no migration**: *"There are no saved projects - we are in pre
+   alpha"*.
+2. **2026-10-07: parameter IDs are free to change during pre-alpha**; the permanent-ID freeze
+   applies from the first release. For this plugin and until then, that overrides
+   `plugins/AGENTS.md`'s *Permanent identifiers* ("a parameter `#[id]` is never changed or
+   reused"), this plugin's own frozen-surface text (below, *The surface before 2026-10-07*) and its
+   list of retired IDs. A **recorded deviation**, as mxm-model-drums recorded its own in its brief.
+3. **2026-10-07: mechanical mapping, same sound.** The named controls become general ones in a fixed
+   order; each model keeps its panel names; every kit and preset sounds exactly as it did,
+   bit-identical on Windows. Per-model redesign can come later — not now.
+
+**The surface**: per slot `model`; twenty general controls `c01`…`c20`, named `Control k` for the
+host (the module is `Slot N`); seven slot settings `level`, `pan`, `mute`, `solo`, `choke_group`,
+`output`, `midi_channel`; four route slots `route<r>_{source,target,amount}`. Kit-wide `master`,
+`lfo{1,2,3}_{rate,shape,sync}` and `resample`. Sixteen slots of forty and eleven kit-wide: **651**,
+from 3,227 (sixteen of 19 + 13 × 7 × 2, and eleven) — `params::SLOT_PARAMETERS`, `GLOBAL_IDS`,
+`the_ids_are_complete_unique_and_651`. The slot order and the route and target parameters are
+model-drums' (`plugins/mxm-model-drums/src/params.rs`), Choke group now before Output.
+
+**The mapping** (`params::control`; each keeps its range, default, unit, 15 ms linear smoothing and
+its path into the DSP's `SlotPatch`):
+
+| Control | ID | Was | Panel name | Range |
+|---|---|---|---|---|
+| 1 | `c01_N` | `pitch_N` | Tune | ±24 st, read in semitones |
+| 2 | `c02_N` | `decay_N` | Decay | ±100 % |
+| 3 | `c03_N` | `tone_N` | Tone | ±100 % |
+| 4 | `c04_N` | `attack_N` | Attack | ±100 % |
+| 5 | `c05_N` | `dynamics_N` | Dynamics | ±100 % |
+| 6 | `c06_N` | `pitch_env_N` | Pitch envelope | ±100 % |
+| 7 | `c07_N` | `pitch_decay_N` | Pitch decay | ±100 % |
+| 8 | `c08_N` | `body_N` | Body | ±100 % |
+| 9 | `c09_N` | `noise_N` | Noise, *Snappy* on a snare | ±100 % |
+| 10 | `c10_N` | `noise_decay_N` | Noise decay | ±100 % |
+| 11 | `c11_N` | `character_N` | Character | ±100 % |
+| 12–20 | `c12_N`…`c20_N` | — | not drawn | ±100 %, unused |
+
+Model-drums' common seven come first, so automation keeps its sense across the two instruments:
+Tune, Decay, Tone, Attack, Velocity, Pitch drop, Pitch decay. **Dynamics takes Velocity's place
+because it is velocity sensitivity** — the velocity curve's exponent on every family (the DSP's
+`velocity.rs`), where model-drums' Velocity is "how far a soft stroke moves from a hard one" — and
+Pitch envelope takes Pitch drop's. The machine's own follow in the order they were declared. **No
+model of this machine uses 12–20**: they are exact no-ops, never read or smoothed in `process`, and
+never drawn, as model-drums leaves its kick's 17–20. A control a model does not support stays
+visible and disabled, as before.
+
+**The routes.** Each slot's 13 targets × 7 sources of presence and amount (`route_<target>_<source>_{on,amount}_N`,
+182 a slot) became four route slots, each a source, a target and an amount:
+
+- Sources, in order: `Off`, `LFO 1`, `LFO 2`, `LFO 3`, `Wheel`, `Pressure`, `Velocity`, `Random` —
+  the grid's seven sources one for one (`SourceChoice::dsp`).
+- Targets, in order: `Off`, `Control 1`…`Control 20`, `Level`, `Pan`. Controls 1–11 are the grid's
+  targets by the table above, `Level` its `level` target (Amplitude), `Pan` its `pan`
+  (`RouteTarget::dsp`); Controls 12–20 reach nothing.
+- An old route `route_<target>_<source>_on_N` with its amount is one route slot with that source,
+  that target and that amount. The amount keeps the old pairs' travel (−1…+1, linear) and smoothing
+  (15 ms); one full route still reaches what the pair reached (the DSP's `routing::FULL_SCALE`).
+- **The DSP is unchanged**: `Routes::routing_from` fills its per-slot grid from the four slots each
+  block and `Routes::advance` each sample, so one route alone is exactly the pair it replaces
+  (`every_grid_pair_has_exactly_one_route_spelling`, `a_route_fills_its_pair_and_an_unused_one_fills_nothing`).
+
+**What changed in behaviour**, beyond the IDs and names:
+
+- **Four routes a drum** is the limit, where every one of the 91 pairs could be on at once.
+- **A route is off when its source or its target is Off** (model-drums' rule); removing one switches
+  its source off and **keeps its target and amount**, so adding a source back to that knob restores
+  the depth. Before, a route was its own presence parameter, and absence kept the amount.
+- Two route slots on one source and one target **add** (`two_routes_on_one_pair_add`); before, a pair
+  had one amount. A route aimed at Controls 12–20 takes a slot and does nothing.
+- The host reads a route amount as a **percentage** of its target's full reach (Tune's 100 % is twelve
+  semitones), not in the target's unit: one parameter serves every target. The route's host names are
+  `Route r source/target/amount`, not `<Target> from <Source>`; a row on the panel still reads
+  `<Target> from <Source>`.
+- A knob's accessible and tooltip name is its host name, `Control k`; the panel paints its old name
+  (`Bound::panel`, mxm-preset's binding rule).
+- Presets store routes sparsely by the new rule (§ *Presets and the audition kits*), and every kit
+  carries Controls 12–20 at zero.
+
+**Retired with the old surface**: the plugin-side `mxm_plugin_test::routing_checks` test
+(`every_route_parameter_says_what_the_dsp_does`), which needs a parameter per pair — a recorded
+deviation, as model-drums' (§ *Routes and velocity*); the host test
+`pre_d7_state_opens_with_routing_defaults_and_bit_exact_main_audio`, which loaded the pre-D7 state's
+IDs (§ *The recorded-kit fixture*). The DSP's own `conformance` runs unchanged.
+
+**What proved the same sound** is in § [Verification evidence](#the-same-sound-through-the-move-to-general-controls-2026-10-07).
 
 ### Choke groups, instance settings, Mute and Solo
 
@@ -190,15 +281,44 @@ the shared grouped `mxm-ui` caret selector, so arrows/search visit implemented m
 reserved or unavailable IDs. Host automation of an unavailable ID displays `Unavailable N` and
 renders silence. Group headings are display-only and cannot shift a stored index.
 
-### Globals, the three LFOs and the per-slot route grid
+### Globals and the three LFOs
 
-The permanent globals are `master` plus `lfo{1,2,3}_{rate,shape,sync}`. There are exactly three LFO
-generators for the kit, never three per slot. Each `sync` is one on/off button beside its Rate knob.
-Off, Rate is hertz; on, the same knob snaps across 4 bars through 1/32 and reads the selected musical
-division. Missing or invalid host tempo falls back to the continuously advanced free Rate. The three
-pre-release `lfo{1,2,3}_division` ids are retired: a separate Division parameter was the clunky two-
-control design the owner rejected on 2026-09-20, and none may be reused. The routing Cartesian
-product is per slot:
+The globals are `master` plus `lfo{1,2,3}_{rate,shape,sync}` (and the instance setting
+`resample`). There are exactly three LFO generators for the kit, never three per slot. Each `sync` is
+one on/off button beside its Rate knob. Off, Rate is hertz; on, the same knob snaps across 4 bars
+through 1/32 and reads the selected musical division. Missing or invalid host tempo falls back to the
+continuously advanced free Rate. A separate Division parameter was the clunky two-control design the
+owner rejected on 2026-09-20. Realtime compaction is narrower than a route being in use: an in-use
+route at settled zero stays on the panel and in a preset but leaves the per-sample DSP list until its
+smoothed amount moves again. The slot's controls and routes are boxed, and the production shell boxes
+its DSP engine, so neither constructing the surface nor moving the plugin through the CLAP wrapper can
+overflow an ordinary host or validator thread's stack.
+
+### The surface before 2026-10-07
+
+*History, kept as it was written. The text below described the frozen surface the move to general
+controls and route slots replaced (§ [the move](#the-move-to-general-controls-and-route-slots-2026-10-07));
+its "permanent" and "never reused" were lifted for pre-alpha by the owner on 2026-10-07, and its IDs
+are gone.*
+
+**Slot parameters and their ids.** All sixteen slots carry Model, Pitch, Pitch envelope, Pitch decay,
+Decay, Attack, Tone, Body, Noise, Noise decay, Character, Dynamics, Level, Pan, Mute and Solo even when
+the selected model cannot use a shaping axis. The additive IDs are `pitch_env_1`…`pitch_env_16`,
+`pitch_decay_1`…`pitch_decay_16` and `noise_decay_1`…`noise_decay_16`; every default is zero and
+preserves the source/reference sound. They are directly automatable slot parameters and each of the
+thirteen continuous slot controls is a routing target. The nice-plug nested-array
+IDs are `<suffix>_<slot>` with one-based slots, including additive `mute_1`…`mute_16`,
+`solo_1`…`solo_16`, `output_1`…`output_16`, `choke_group_1`…`choke_group_16` and
+`midi_channel_1`…`midi_channel_16`. Output is stepped `L+R`, `1`…`16`; MIDI channel is stepped
+`Kit`, `Ch 1`…`Ch 16`; Choke group is stepped `Off`, `1`…`16`.
+
+**Globals, the three LFOs and the per-slot route grid.** The permanent globals are `master` plus
+`lfo{1,2,3}_{rate,shape,sync}`. There are exactly three LFO generators for the kit, never three per
+slot. Each `sync` is one on/off button beside its Rate knob. Off, Rate is hertz; on, the same knob
+snaps across 4 bars through 1/32 and reads the selected musical division. Missing or invalid host
+tempo falls back to the continuously advanced free Rate. The three pre-release `lfo{1,2,3}_division`
+ids are retired: a separate Division parameter was the clunky two-control design the owner rejected on
+2026-09-20, and none may be reused. The routing Cartesian product is per slot:
 `route_<target>_<source>_on_<slot>` and `route_<target>_<source>_amount_<slot>`, for thirteen
 continuous targets and seven sources. Every route starts absent at zero. Presence alone controls
 whether the assignment exists and whether its row is shown; amount zero is valid and never removes
@@ -209,12 +329,124 @@ thirteen target groups are boxed, and the production shell boxes its DSP engine,
 constructing the 3,226-parameter surface nor moving the plugin through the CLAP wrapper can overflow
 an ordinary host or validator thread's stack.
 
-### The retired global route ids
+**The retired global route ids.** The owner's pre-release correction on 2026-09-20 retired all 108
+unsuffixed global route IDs — the old nine-target/six-source `route_<target>_<source>_{on,amount}`
+grid — rather than reusing them for one slot. They remain permanently retired. A state written before
+this correction restores its sound parameters but cannot carry the old global modulation topology
+into one arbitrary drum.
 
-The owner's pre-release correction on 2026-09-20 retired all 108 unsuffixed global route IDs — the
-old nine-target/six-source `route_<target>_<source>_{on,amount}` grid — rather than reusing them for
-one slot. They remain permanently retired. A state written before this correction restores its sound
-parameters but cannot carry the old global modulation topology into one arbitrary drum.
+**From the brief** (`docs/briefs/mxm-drum-machine.md`), *Common per-slot parameter vocabulary* and
+*Global and routing IDs* as they read until 2026-10-07, under its heading *Permanent product surfaces
+fixed at D0 and extended additively*:
+
+> Every slot has these permanent base IDs and concepts. Revision 33 appended `pitch_env`,
+> `pitch_decay` and `noise_decay` without changing any earlier ID or meaning. nice-plug's nested-array
+> convention makes the full IDs `<suffix>_1` through `<suffix>_16` — for example `model_1`,
+> `pitch_1`, … `solo_16`. The one-based numeric suffix is part of the permanent ID.
+>
+> | Suffix | Canonical host name inside slot N | Kind / zero meaning |
+> |---|---|---|
+> | `model` | `Slot N model` | Fixed-domain stepped integer; Init chooses a useful model. |
+> | `pitch` | `Slot N pitch` | Bipolar continuous pitch-law deviation; `0 st` is reference. The editor labels it Tune. Unavailable where no honest pitch law exists. |
+> | `pitch_env` | `Slot N pitch env` | Additive bipolar depth deviation; zero preserves a native reference sweep or leaves a source-accurate no-sweep circuit unchanged. |
+> | `pitch_decay` | `Slot N pitch decay` | Additive bipolar pitch-envelope time deviation; zero preserves source/reference timing. |
+> | `decay` | `Slot N decay` | Bipolar continuous time/feedback deviation; zero is reference and positive travel extends beyond stock where the topology permits. |
+> | `attack` | `Slot N attack` | Bipolar excitation/click/burst deviation; zero is reference. |
+> | `tone` | `Slot N tone` | Bipolar internal spectral/filter deviation; zero is reference. |
+> | `body` | `Slot N body` | Bipolar tonal-body balance/shape deviation; zero is reference. |
+> | `noise` | `Slot N noise` | Bipolar noise/snappy contribution deviation; zero is reference. Snare cards label it Snappy. |
+> | `noise_decay` | `Slot N noise decay` | Additive bipolar time deviation for a distinct wire/noise envelope; zero is reference and unsupported models are exact no-ops. |
+> | `character` | `Slot N character` | Bipolar model-specific metal/room/nonlinear character deviation; zero is reference. |
+> | `dynamics` | `Slot N dynamics` | Bipolar deviation from historical velocity/accent response; zero is reference. |
+> | `level` | `Slot N level` | Linear gain formatted dB; Init balances the kit. |
+> | `pan` | `Slot N pan` | Bipolar stereo placement; centre is reference. |
+> | `mute` | `Slot N mute` | Boolean post-circuit silence; false by default and Mute wins over Solo. |
+> | `solo` | `Slot N solo` | Boolean post-circuit isolation; if any is true, only unmuted soloed slots sound. |
+> | `choke_group` | `Slot N choke group` | Stepped `Off`, `1`…`16`. Slots sharing a group cut each other through a bounded de-click, whatever models they are. `Off` by default: nothing chokes unless assigned. A **kit** setting — which slots cut each other is sound design — so presets carry it, unlike `output` and `midi_channel`. |
+>
+> Parameter ranges, smoothing and route full scales are measured before D2's first bundle, then
+> become compatibility surface. The vocabulary and IDs above are frozen now. An unavailable axis
+> remains an ordinary parameter with zero effect for that model, so model automation never changes
+> the host's parameter inventory.
+>
+> The owner's 2026-09-20 pre-release correction replaced the global route grid with per-slot
+> routing. Its 108 unsuffixed IDs are retired and never reused; the slot-suffixed IDs below are the
+> permanent surface.
+>
+> Global parameters are: `master`; `lfo1_rate`, `lfo1_shape`, `lfo1_sync`, and the matching `lfo2_*`
+> and `lfo3_*`. The rejected pre-release `lfo{1,2,3}_division` ids are retired.
+>
+> The fixed route sources, in evaluation order, are `lfo1`, `lfo2`, `lfo3`, `wheel`, `pressure`,
+> `velocity`, `random`. The fixed targets are `pitch`, `pitch_env`, `pitch_decay`, `decay`,
+> `attack`, `tone`, `body`, `noise`, `noise_decay`, `character`, `dynamics`, `level`, `pan`.
+>
+> For every slot/target/source combination two permanent IDs exist: `route_<target>_<source>_on_<slot>`
+> and `route_<target>_<source>_amount_<slot>`. That Cartesian product is 1,456 presence/amount pairs
+> across sixteen slots. Optional creative routes are all absent and zero in Init. Preset files store
+> the grid sparsely: no fields for an unassigned pair, presence alone for an assigned zero route, and
+> both fields for an assigned nonzero route. Velocity reaches each hit directly and is not a route.
+> Per-note tuning and channel bend enter model pitch directly, not as removable routes.
+>
+> […] one full Pitch route reaches 12 semitones and one full Level route reaches 12 dB […]
+> Presence is discrete and an absent pair contributes nothing while retaining its dormant amount.
+> An assigned route at settled zero remains assigned and visible but is omitted from the compact
+> per-sample DSP list; moving it away from zero activates it again.
+>
+> All shaping deviations and optional route amounts begin at zero; route presences are absent.
+
+The 12 dB Level reach was already stale there: the modulation standard (2026-09-26) had made Level's
+routes the Amplitude factor, as § *Routes and velocity* records.
+
+**The contract text it replaced** — this plugin's `AGENTS.md`, and the index rows that described it,
+as they read until 2026-10-07:
+
+> Owns `Cargo.toml`, `README.md`, `control-map.json`, `src/`, `presets/`, `tests/` and `host-tests/`;
+> the licence is the repository's `LICENSE`. It owns permanent CLAP/parameter identity, parameter
+> smoothing, host event translation, telemetry and editor.
+>
+> - Routes are the collection's modulation standard: every amount is
+>   `mxm_modulation_params::reading::amount_param`; `level` routes read Amplitude in percent, their
+>   ids stay `route_level_*` (`every_route_parameter_says_what_the_dsp_does`).
+>
+> ## Parameter surface ([NOTES.md § Parameters](NOTES.md#permanent-parameter-and-routing-surface))
+>
+> - All sixteen slots carry Model, Pitch, Pitch envelope, Pitch decay, Decay, Attack, Tone, Body,
+>   Noise, Noise decay, Character, Dynamics, Level, Pan, Mute and Solo whatever the model; changing
+>   Model never changes the host parameter inventory. Every default is zero, the reference sound.
+> - IDs are `<suffix>_<slot>`, one-based (`pitch_env_N`, `pitch_decay_N`, `noise_decay_N`, `mute_N`,
+>   `solo_N`, `output_N`, `choke_group_N`, `midi_channel_N`). Output is stepped `L+R`, `1`…`16`;
+>   MIDI channel `Kit`, `Ch 1`…`Ch 16`; Choke group `Off`, `1`…`16`.
+> - Globals are `master` and `lfo{1,2,3}_{rate,shape,sync}`: exactly three kit LFOs, never per slot;
+>   `sync` is one button snapping Rate to a division; no valid tempo means the free Rate.
+> - Routes are `route_<target>_<source>_on_<slot>` / `_amount_<slot>`, starting absent. Presence alone
+>   decides whether a route exists; amount zero never removes it; removing one keeps its dormant
+>   amount. Route trees and the shell's DSP engine are boxed, so no host thread's stack overflows.
+> - **Permanently retired, never reused**: `lfo{1,2,3}_division` and the 108 unsuffixed global
+>   `route_<target>_<source>_{on,amount}` ids.
+>
+> - The editor implements [`../../docs/briefs/mxm-drum-machine.md`](../../docs/briefs/mxm-drum-machine.md).
+>   No standalone Routes card: each continuous control's route stack is in the card that owns it,
+>   bound to the selected slot. Each LFO row is Rate, Sync, then six **drawn** shapes.
+> - Labels: Pitch reads Tune; snare Noise reads Snappy. Unsupported controls stay visible and
+>   disabled. **No engineering prose in editor copy**; the model's description is the selector's
+>   hover text, in the sound's words.
+> - Kits never carry Output or MIDI channel. Routing is sparse: an unassigned pair stores nothing, an
+>   assigned zero route presence alone, an assigned nonzero route both.
+> - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
+>   sound. To change a frozen kit: off, edit, on. Pitch and Decay stay live as playback controls.
+> - `pack.rs` writes 24-bit WAV one-shots and a manifest through mxm-kit's `mxm-audio-file`, never
+>   `mxm-audio-file-decode`. Files stop before the mix: unity gain, centred, Pitch and Decay applied
+>   (`the_mix_cannot_change_an_exported_byte`). A pack's rate is fixed (`editor::PACK_SAMPLE_RATE`),
+>   whatever the host runs at; the capture that plays follows the host.
+>
+> `plugins/AGENTS.md`'s index: | [`mxm-drum-machine/AGENTS.md`](mxm-drum-machine/AGENTS.md) | Original
+> sixteen-slot drum instrument over an append-only pool of machine-specific circuits; all 94 admitted
+> models owner listening-approved, Kit or chromatic MIDI per slot, stereo main plus sixteen mono
+> outputs, nine source-family audition presets on one canonical role map |
+>
+> The root `AGENTS.md`'s index: | [`plugins/mxm-drum-machine/AGENTS.md`](plugins/mxm-drum-machine/AGENTS.md)
+> | Drum-machine identity, fixed slot/model/output/choke/channel and per-slot routing parameters, two
+> output layouts, Kit/chromatic event ownership, sparse kit presets, telemetry and reflowing editor |
 
 ## Interface
 
@@ -231,8 +463,16 @@ was the collection's tempo-sync pilot; its ladder is now `mxm-tempo`'s LFO ladde
 (`params::LFO_SYNC`, the same fourteen divisions at the same positions), the button the collection's
 quarter note (`binding::sync_picture`), the rate resolved once per block and the reading the free
 hertz when no tempo is in force (`Telemetry::tempo`). There is
-no standalone Routes card or target picker: every continuous slot control's
-`mxm-modulation-params` stack is in the card that owns the control, bound to the selected slot only.
+no standalone Routes card or target picker: every knob's routes are rows under it, in the card that
+owns it, bound to the selected slot only. *Since 2026-10-07* they are drawn over the slot's four route
+slots exactly as mxm-model-drums' editor draws its own (`route_stack`, `target_line`, `route_row`,
+`stack_size`): the knob's line offers `‹ modulate ›` with the sources not already on it while a slot
+is free; choosing one takes a free slot — one already aimed at that knob first, so a source added
+back keeps its depth — writing its source, its target and (for a slot aimed elsewhere) a zero depth
+as one bracketed gesture (`adding_a_route_takes_the_first_free_slot_in_one_gesture`); a row's remove
+switches its source off, one write, the depth kept. *Until then* each knob carried the collection's
+`mxm-modulation-params` stack, one fixed presence-and-amount pair per source, which cannot draw a
+route slot that any source and target can take.
 Output is the selected
 slot's output stage, so it is the last card (Tone category, design system §3.4; owner, 2026-09-18):
 its Level/Pan and its Output, Choke Group and MIDI channel selectors; Pan's help says that mono individual outputs
@@ -253,8 +493,12 @@ typography.
 
 ### Labels and help text
 
-The permanent host name remains Pitch, while the musician card labels it Tune; snare Noise is
-labelled Snappy. Pitch envelope and Pitch decay separate excursion depth from time, and Noise decay is
+**The host names a control by its number, `Control k`; the panel by the name it had** (`Axis::name`,
+since 2026-10-07): Control 1 reads Tune, as Pitch did before it; snare Noise is labelled Snappy; the
+others read Decay, Tone, Attack, Dynamics, Pitch envelope, Pitch decay, Body, Noise decay and
+Character. The knob's accessible and tooltip name is the host's (`Bound::panel`). *Until 2026-10-07*
+the host names were the axes' own — Pitch, Decay, … — and only Pitch was relabelled on the card.
+Pitch envelope and Pitch decay separate excursion depth from time, and Noise decay is
 available only for distinct wire/noise envelopes. Decay's positive half reaches bounded extended
 ranges while zero remains source/reference. Unsupported controls remain visible and disabled; do not
 explain their implementation contract in the editor. All visible help and tooltips use musician-facing
@@ -282,7 +526,7 @@ decorative curves or a tail view that hides parameter edits.
 the selected slot, measured for its floor and height and drawn leaf by leaf through the bindings
 (`editor::paint`, `paging::editor::show`). **Floors are computed**, never typed: `page_items`
 takes each from its card's tree, so a floor follows the selected slot's model — the Model
-selector's widest option, *Noise* or *Snappy* — and every route stack at its widest reading. **The
+selector's widest option, *Noise* or *Snappy* — and every knob's routes at their widest row. **The
 model's description is the Model selector's hover text, not a line on the card** (the owner,
 2026-09-27: no help text on the panel, and hover text written for the player), in the sound's words
 — *A bright open hi-hat with a long ring* — never the circuit's. Each card is exactly as wide as its floor: its ceiling is its floor
@@ -292,9 +536,10 @@ to read (2026-09-18, 290 points of card) is held since R2 on the control it prot
 a card minimum (A2). What the editor states for what it draws itself: a slot row is `MIN_TARGET`
 tall and at its narrowest its frame's margins, the number's `SLOT_NUMBER_WIDTH`, the model button at
 `SLOT_MODEL_MIN`, Mute and Solo and the row's spacing (`slot_row_min_width`). **Painted names:** the
-LFO knobs read *Rate 1*–*3* (the card says *LFOs*), and the Tune knob's stack reads *Tune*, as its
-knob does (`panel_name`); the controls' names are sentence case (*Pitch envelope*, *Pitch decay*,
-*Noise decay*), the routes' host names with them; the mechanism display is `MECHANISM_HEIGHT` tall and fills
+LFO knobs read *Rate 1*–*3* (the card says *LFOs*), and the Tune knob's routes read *Tune*, as its
+knob does, where the others read the DSP's target names — Level's *Amplitude* — (`Axis::routed_name`,
+`panel_name` until 2026-10-07); the controls' names are sentence case (*Pitch envelope*, *Pitch
+decay*, *Noise decay*); the mechanism display is `MECHANISM_HEIGHT` tall and fills
 the Model card; every knob stands in the collection's knob row or column
 (`mxm_ui::control::knob_column`), the LFO rate's widest reading the longest of its hertz reading and
 every musical division.
@@ -315,9 +560,15 @@ role map:
 slots 1–5 Kick/Snare/low/mid/high drum; 6–8 second low/mid/high pitched percussion; 9 Rim; 10
 Clap/brush; 11/12 closed/open hat; 13 Cymbal/crash; 14 Cowbell; 15 Clave; 16 auxiliary percussion.
 Factory and user kit presets never carry Output or MIDI channel, so auditioning cannot rewire a DAW
-or controller. Routing is sparse in preset files: an unassigned pair stores neither presence nor its
-dormant amount; an assigned zero route stores presence alone; an assigned nonzero route stores both.
-Resolving every omission writes the parameter default, so a kit load clears unrelated live routes.
+or controller. Routes are sparse in preset files (since 2026-10-07): a route slot not in use — its
+source or its target Off — stores none of its three fields, its dormant target and amount included;
+an in-use route at zero depth stores its source and target; one with depth stores all three
+(`routes_capture_sparsely_without_conflating_zero`). *Until then* the grid's pairs were sparse the
+same way: an unassigned pair stored neither presence nor its dormant amount, an assigned zero route
+presence alone, an assigned nonzero route both. Resolving every omission writes the parameter
+default, so a kit load clears unrelated live routes. Every kit carries Controls 12–20, at zero; the
+nine kits were rewritten to the general controls on 2026-10-07 by their generator
+(`write_the_factory_presets`), every value under its new ID unchanged.
 These are audition mixes, not sixteen solo levels: the DSP first places every model's isolated
 zero-deviation reference hit on its documented common peak plane, then Kick and Snare stay at 0 dB;
 slots 3–8 and Clap sit at −6 dB; Rim, Cowbell and Clave at −8 dB; both hats and auxiliary percussion
@@ -329,7 +580,7 @@ fifty-kit creative bank remains a separate content requirement.
 ## Resample is an instance setting, and the capture happens at activation
 
 `resample` (plan §4.7, D9) plays each slot from a recording of itself instead of its circuit. It is
-**one additive id**, taking the surface from 3,226 to 3,227, and it is declared an **instance
+**one additive id** (taking the surface of its day from 3,226 to 3,227), and it is declared an **instance
 setting** beside `output_*` and `midi_channel_*`: host and project state remember it, while preset
 capture, apply, Init, completeness, the identity baseline and dirty comparison all exclude it. So
 **no kit engages or disengages the mode** — loading a kit while frozen changes the kit and leaves
@@ -337,7 +588,8 @@ the mode alone, and the factory bank keeps measuring kits rather than the captur
 in Init and in every factory kit.
 
 The sample-domain Pitch and Decay of §4.7 add **no** ids: they are the per-slot axes that already
-exist, read in the captured domain by `mxm-drum-machine-dsp`'s reader.
+exist, read in the captured domain by `mxm-drum-machine-dsp`'s reader — since 2026-10-07 Controls 1
+and 2, Tune and Decay (`params::control::TUNE`, `DECAY`).
 
 **`refresh_captures` is a control-thread operation and `activate` is where it runs.** It renders
 seconds of audio and allocates, so it never belongs to `process`. Running it at activation is what
@@ -589,14 +841,59 @@ after the fork's refresh onto 0.4.2. Release is unaffected: 2.93–3.04 s on 0.3
 on 0.4.2, three runs each. Not fixed on purpose: the owner plans to lower the parameter count, the
 way mxm-model-drums did, which removes the cause.
 
-### The pre-D7 compatibility fixture
+**2026-10-07, after the count was lowered** (3,227 → 651, § [the move](#the-move-to-general-controls-and-route-slots-2026-10-07)):
+the debug bundle passes `clap-validator validate -t param-fuzz-basic` in **20.45 s** (20.99 s wall),
+one run, Windows, nice-plug 0.4.2 — inside the 45-second limit with room to spare.
+
+### The same sound through the move to general controls (2026-10-07)
+
+The owner's rule for the move was *same sound, bit-identical on Windows*. Three things held it:
+
+- **Every kit, every control, every route through `process()`**: `same_sound_digests` (an ignored
+  harness in `lib.rs`'s `full_layout` tests) renders Init and the nine kits — all sixteen notes at
+  once, half a second, main and sixteen individual ports — as they stand and with every used control
+  moved to its own value, and Init with every slot's four routes on four different grid pairs. Run
+  on the old surface and on the new, its 21 FNV-1a digests were identical, line for line:
+
+  ```text
+  Init / as-is: b01e4dbdbdb25318         Init / moved: a0dfea08809bbbaf
+  Init / routes: 3da5bd969733816e
+  Bridge 808 / as-is: 47e26294ed95e01d    Bridge 808 / moved: d04c7102cc40fb88
+  Reset 909 / as-is: 0ebc5a34f2f6a1f3     Reset 909 / moved: 316c739781fb8c27
+  Economy 55 / as-is: 77c93c8d3bbc16e5    Economy 55 / moved: dab404737d491659
+  Expanded 8000 / as-is: 35f5327d3f54f00a Expanded 8000 / moved: 876893835c745540
+  Compact 606 / as-is: ad8b734eb5af512e   Compact 606 / moved: 59c09dda792ebbd7
+  Snap 110 / as-is: f38fb1a9eec33dd7      Snap 110 / moved: 8a39651dfdfa10f7
+  Classic 78 / as-is: e50c73442cba7822    Classic 78 / moved: be760cccdbfb8f26
+  Discrete 66 / as-is: 26ddb6d594e8fc31   Discrete 66 / moved: 72e815d10c0f8c3c
+  Early 2L / as-is: 9eed8daa51434951      Early 2L / moved: aab983c6b37be73b
+  ```
+
+  These are a dated record, not a pin: a deliberate model change moves them.
+- **The kits themselves**: each rewritten file holds every one of its 282 old values under the new ID
+  the mapping gives it, `v` and `text` unchanged, plus Controls 12–20 at their defaults (144), checked
+  against the files as committed before the move.
+- **Through MXM Player**: the host test's recorded render, loaded through the ID mapping
+  (§ *The recorded-kit fixture*), matches bit for bit.
+
+### The recorded-kit fixture, once the pre-D7 compatibility fixture
 
 `host-tests/tests/fixtures/mxm-drum-machine-pre-d7/` is project-generated D7 compatibility evidence:
 a path-remapped Windows x86_64 bundle rebuilt from the fixed pre-D7 source commit, plus the original
-pre-change non-default CLAP state and stereo float render and their manifest. Routine tests load the
-state into the current bundle and compare against a current render, re-captured only for a deliberate
-change to the slot's model sound (first on 2026-09-19); the retained old bundle and original render
-are for manual release/DAW diagnosis.
+pre-change non-default CLAP state and stereo float render and their manifest. Routine tests loaded
+the state into the current bundle and compared against a current render, re-captured only for a
+deliberate change to the slot's model sound (first on 2026-09-19); the retained old bundle and
+original render are for manual release/DAW diagnosis.
+
+**2026-10-07: the pre-D7 test is retired, its render kept.** The state holds the IDs of its day
+(`pitch_1`, `decay_1`, …), which the plugin no longer reads and, with no migration in pre-alpha, never
+will. `pre_d7_state_opens_with_routing_defaults_and_bit_exact_main_audio` was **removed** from
+`host-tests/tests/behaviour.rs` for that reason (this note is its record). In its place
+`the_recorded_kit_on_the_general_controls_renders_its_recording_bit_exact` rewrites the same state's
+named-control IDs to the general controls by the mapping (`MAPPING` in that file — the rewrite is the
+test's, not the plugin's), loads it, checks Tune restored on Control 1 and matches
+`non-default-kit-main-current.wav` bit for bit on Windows, within rounding elsewhere. The fixture's
+files are unchanged.
 
 ### The editor's standard and tree checks
 
@@ -611,8 +908,9 @@ word-presence check in `tests/interface.rs`
 complements these and does not replace them — it cannot see a control pushed off-screen.
 `every_card_passes_the_tree_checks_in_every_state` and `every_models_cards_pass_the_tree_checks`
 run `mxm_plugin_test::tree_checks`'s per-card checks — floor holds, content floor exact, stated
-height drawn, nothing outside its leaf — over this editor's structural states: Init, every route
-revealed at full negative depth, Resample on, every LFO synced, the last slot selected, one model
+height drawn, nothing outside its leaf — over this editor's structural states: Init, every slot's
+four routes in use at full negative depth on Tune, Body, Decay and Level (every route revealed, until
+2026-10-07), all four on Tune, Resample on, every LFO synced, the last slot selected, one model
 per noise label, a legacy Off and an unavailable id — the slot cards
 at their content floor, so a slot row's stated width is held to what it paints. Tests take
 floors from `test_items`/`items_in`, which run `page_items` in a scratch editor context. Review
@@ -622,7 +920,10 @@ pictures of every page, light and dark:
 
 ### What the tests cover
 
-Checks cover permanent identity, parameter IDs/defaults, model formatting, Kit/chromatic collision,
+Checks cover identity, the 651 parameter IDs/defaults and their positions, each general control's
+range and reading, every grid pair's one route spelling, route slots filling the grid (alone, added,
+Off, unused), the route amount's travel against every pair's offer, route adding/removing/offering
+in the editor, presets pairing every host parameter with its own ID, model formatting, Kit/chromatic collision,
 shared-channel chord arbitration under permutation, note ownership/tuning/choke including choke
 after NoteOff/CC123 and host-order-independent owner events, chromatic bounds, both saturation
 policies, stereo fold-down of stored outputs, Mute/Solo precedence, panic, both audio-layout
@@ -630,8 +931,8 @@ inventories and slot-numbered port names, output text entry by port name, the ki
 (its derived reading of all, own and mixed settings, and one balanced gesture that writes only the
 outputs that move, from every start, leaving a loaded kit clean), preset exclusion of Output/MIDI channel across
 capture/Init/every factory kit/dirty state, no process allocation, the shared crate's unlike-consumer policy fixture, editor paint/fit and all assigned
-model-selector paths. Every factory kit and Init sparsely omit absent route pairs while resolving
-them back to absent/zero and leaving non-default Output and MIDI-channel instance settings intact. A
+model-selector paths. Every factory kit and Init sparsely omit unused routes while resolving
+them back to Off/zero and leaving non-default Output and MIDI-channel instance settings intact. A
 full-layout harness drives the plugin's own `process()` with sixteen mono
 auxiliary buffers: every slot reaches exactly its selected port and nothing else, stereo
 compatibility folds each to main, Master scales and Mute/Solo silence individual ports, and a live
@@ -640,8 +941,9 @@ also run through `mxm-preset`'s real write functions with non-default Output/MID
 them intact. The DSP suite proves main compatibility, mono Pan bypass, shared-output
 summing, all sixteen slots on exactly their own output, a live reassignment of all sixteen, a
 transfer at every sample phase, reversal plus latest-wins, and a silent slot — idle, or muted while
-its circuit runs — taking a new output before its next hit or unmute. MXM Player reopens the fixed pre-D7 state and matches its main render
-bit-for-bit, keeps a slot stored on an individual output audible in stereo compatibility, and
+its circuit runs — taking a new output before its next hit or unmute. MXM Player opens the recorded
+kit's state through the ID mapping and matches its main render bit-for-bit (the fixed pre-D7 state
+through its own IDs until 2026-10-07), keeps a slot stored on an individual output audible in stereo compatibility, and
 round-trips non-default Output/MIDI channel through CLAP state. Hardware fidelity, real multi-output
 DAW restoration, Linux and macOS remain unverified. *Since the split (2026-10-06):* the main render
 is matched bit-for-bit on Windows only and within rounding elsewhere, because the recording holds

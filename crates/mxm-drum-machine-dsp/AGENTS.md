@@ -62,11 +62,13 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
   linear partition summing to one (latest-wins); any other slot switches at once. `route_outputs`
   runs before an event group's triggers. Reset, choke and panic never change assignments.
 - Each slot owns its own 13-target × 7-source topology and `SourceFrame`; a route never crosses
-  slots. Three kit-wide LFOs run once per sample and always free-run. A newly needed source is
+  slots. The plugin fills it from four route slots a drum (since 2026-10-07; the grid is
+  unchanged). Three kit-wide LFOs run once per sample and always free-run. A newly needed source is
   cleared before its first read; an absent route keeps its amount.
 - Every route is the collection's standard: Amplitude (`level`) is the standard factor, Velocity is
-  `v − 1`. `conformance.rs`'s `Declared` runs the checks; the plugin reuses it (`conformance`).
-  Randomness is seeded; the plugin resolves LFO rates and tempo sync.
+  `v − 1`. `conformance.rs`'s `Declared` runs the checks; the plugin holds its route amount's travel
+  to `Declared`'s offers (`conformance`). Randomness is seeded; the plugin resolves LFO rates and
+  tempo sync.
 
 ## Shared sources ([§ shared state](NOTES.md#shared-source-state-is-load-bearing), [§ jump.rs](NOTES.md#gating-a-free-running-bus--jumprs-and-fixed-point-phase))
 

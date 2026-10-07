@@ -31,7 +31,7 @@ reference-centred controls. It does not lead with a step row: sequencing belongs
 
 1. **Model** — the instrument's defining choice. The closed control is the collection caret selector;
    the long menu searches and groups models by voice family.
-2. **Tune** — the UI label for the permanent `pitch` axis: chromatic where the physical family
+2. **Tune** — the panel's name for Control 1 (`c01`), the pitch axis: chromatic where the physical family
    permits it through poles, VCO control, metal-bank scale, PCM clock, or an evidenced noise
    clock/filter. It is unavailable where none is honest.
 3. **Decay** — the most immediate articulation control, mapped to resonator feedback, VCA/envelope
@@ -157,10 +157,12 @@ identity, compatibility guarantees and implementation terminology belong in proj
 not editor help. The editor is measured with Model notes open. There is no setup drawer, utility
 macro layer, model editor, randomizer or mouse-audition command path.
 
-Routing is parameter-local and slot-local. Each continuous control's owning card places its real
-`mxm-modulation-params` stack directly below the control group; changing the selected slot changes
-which permanent route pairs those stacks edit. There is no standalone Routes card, global topology
-or transient target picker.
+Routing is parameter-local and slot-local. Each continuous control's owning card places its route
+rows directly below the control group — the rows of the slot's four route slots aimed at that
+control, drawn as mxm-model-drums' are, with a `‹ modulate ›` line that adds a source to a free slot;
+changing the selected slot changes which route slots those rows edit. There is no standalone Routes
+card, global topology or transient target picker. *(Until 2026-10-07 each control carried the
+collection's `mxm-modulation-params` stack over that slot's fixed route pairs.)*
 
 ## 6. Categories, cards and grouping
 
@@ -175,7 +177,7 @@ Cards retain stable identities; pages derive from available space.
 
 Category order is the collection order. Inside the signal path: slot/trigger context, modulation
 sources and routes, generator/model/excitation/body, then decay/tone and output. There are no
-Sequencers or Effects cards. A selected slot changes which permanent parameter instances these cards
+Sequencers or Effects cards. A selected slot changes which parameter instances these cards
 bind; it does not change card identity or order.
 
 ## 7. Identity accent
@@ -243,7 +245,13 @@ resize remain manual §15 gates.
 
 ---
 
-# Permanent product surfaces fixed at D0 and extended additively
+# Product surfaces
+
+*Titled "Permanent product surfaces fixed at D0 and extended additively" until 2026-10-07.* **A
+recorded deviation** (the owner, 2026-10-07): **parameter IDs are free to change during pre-alpha**;
+the permanent-ID freeze applies from the first release. Until then the parameter IDs below are this
+version's, not a promise, and nothing migrates an older state's IDs (the owner, 2026-09-30: "There
+are no saved projects - we are in pre alpha"). The model catalogue's IDs stay append-only.
 
 ## Model selector representation
 
@@ -290,65 +298,85 @@ has an explicit cross-shaped clear action.
 MXM Player's two-bar `Drum machine family test` saved sequence exercises this map. The sequence owns
 notes and tempo only, so switching among these presets keeps the rhythm fixed.
 
-## Common per-slot parameter vocabulary
+## Per-slot parameters
 
-Every slot has these permanent base IDs and concepts. Revision 33 appended `pitch_env`,
-`pitch_decay` and `noise_decay` without changing any earlier ID or meaning. nice-plug's nested-array convention makes the
-full IDs `<suffix>_1` through `<suffix>_16` — for example `model_1`, `pitch_1`, … `solo_16`. The
-one-based numeric suffix is part of the permanent ID.
+**mxm-model-drums' scheme: the host holds what the panel can show at once** (the owner, 2026-09-30;
+this machine moved to it on 2026-10-07). nice-plug's nested arrays make the full IDs `<suffix>_1`
+through `<suffix>_16`. **A slot's sound controls are general: the host sees `Slot N Control k`, the
+panel the names below.** The move was **mechanical, the same sound** (the owner, 2026-10-07): each
+named control of before is one general control, keeping its range, default, unit, smoothing and its
+law in the circuit, and every kit renders bit-identically. Per-model redesign can come later.
 
-| Suffix | Canonical host name inside slot N | Kind / zero meaning |
+| Suffix | Host name inside slot N | Kind / zero meaning |
 |---|---|---|
 | `model` | `Slot N model` | Fixed-domain stepped integer; Init chooses a useful model. |
-| `pitch` | `Slot N pitch` | Bipolar continuous pitch-law deviation; `0 st` is reference. The editor labels it Tune. Unavailable where no honest pitch law exists. |
-| `pitch_env` | `Slot N pitch env` | Additive bipolar depth deviation; zero preserves a native reference sweep or leaves a source-accurate no-sweep circuit unchanged. |
-| `pitch_decay` | `Slot N pitch decay` | Additive bipolar pitch-envelope time deviation; zero preserves source/reference timing. |
-| `decay` | `Slot N decay` | Bipolar continuous time/feedback deviation; zero is reference and positive travel extends beyond stock where the topology permits. |
-| `attack` | `Slot N attack` | Bipolar excitation/click/burst deviation; zero is reference. |
-| `tone` | `Slot N tone` | Bipolar internal spectral/filter deviation; zero is reference. |
-| `body` | `Slot N body` | Bipolar tonal-body balance/shape deviation; zero is reference. |
-| `noise` | `Slot N noise` | Bipolar noise/snappy contribution deviation; zero is reference. Snare cards label it Snappy. |
-| `noise_decay` | `Slot N noise decay` | Additive bipolar time deviation for a distinct wire/noise envelope; zero is reference and unsupported models are exact no-ops. |
-| `character` | `Slot N character` | Bipolar model-specific metal/room/nonlinear character deviation; zero is reference. |
-| `dynamics` | `Slot N dynamics` | Bipolar deviation from historical velocity/accent response; zero is reference. |
+| `c01` … `c20` | `Slot N Control 1` … `Control 20` | The controls below, each bipolar with zero its reference. |
 | `level` | `Slot N level` | Linear gain formatted dB; Init balances the kit. |
 | `pan` | `Slot N pan` | Bipolar stereo placement; centre is reference. |
 | `mute` | `Slot N mute` | Boolean post-circuit silence; false by default and Mute wins over Solo. |
 | `solo` | `Slot N solo` | Boolean post-circuit isolation; if any is true, only unmuted soloed slots sound. |
 | `choke_group` | `Slot N choke group` | Stepped `Off`, `1`…`16`. Slots sharing a group cut each other through a bounded de-click, whatever models they are. `Off` by default: nothing chokes unless assigned. A **kit** setting — which slots cut each other is sound design — so presets carry it, unlike `output` and `midi_channel`. |
+| `output` | `Slot N output` | `L+R` or `1`…`16`; an instance setting presets never carry. |
+| `midi_channel` | `Slot N MIDI channel` | `Kit` or channel `1`…`16`; an instance setting presets never carry. |
 
-Parameter ranges, smoothing and route full scales are measured before D2's first bundle, then become
-compatibility surface. The vocabulary and IDs above are frozen now. An unavailable axis remains an
-ordinary parameter with zero effect for that model, so model automation never changes the host's
-parameter inventory.
+**The controls, the same on every model** — mxm-model-drums' common seven first, so automation keeps
+its sense across the two instruments; each control's panel name is the one it had:
+
+| Control | Panel name | Kind / zero meaning (was) |
+|---|---|---|
+| 1 | Tune | Pitch-law deviation, ±24 semitones; `0 st` is reference. Unavailable where no honest pitch law exists. (`pitch`) |
+| 2 | Decay | Time/feedback deviation; zero is reference and positive travel extends beyond stock where the topology permits. (`decay`) |
+| 3 | Tone | Internal spectral/filter deviation. (`tone`) |
+| 4 | Attack | Excitation/click/burst deviation. (`attack`) |
+| 5 | Dynamics | The velocity curve's exponent — how far a soft hit moves from a hard one, mxm-model-drums' Velocity place. (`dynamics`) |
+| 6 | Pitch envelope | Additive depth deviation; zero preserves a native reference sweep or leaves a source-accurate no-sweep circuit unchanged — mxm-model-drums' Pitch drop place. (`pitch_env`) |
+| 7 | Pitch decay | Additive pitch-envelope time deviation; zero preserves source/reference timing. (`pitch_decay`) |
+| 8 | Body | Tonal-body balance/shape deviation. (`body`) |
+| 9 | Noise; *Snappy* on a snare | Noise/snappy contribution deviation. (`noise`) |
+| 10 | Noise decay | Additive time deviation for a distinct wire/noise envelope; unsupported models are exact no-ops. (`noise_decay`) |
+| 11 | Character | Model-specific metal/room/nonlinear character deviation. (`character`) |
+| 12–20 | — | Unused on every model: exact no-ops, not on the panel. |
+
+An axis a model cannot use remains an ordinary parameter with zero effect for that model, visible
+and disabled on the panel, so model automation never changes the host's parameter inventory.
+Parameter ranges, smoothing and route full scales were measured before D2's first bundle. The
+vocabulary of before, with its IDs, is kept in the plugin's `NOTES.md` (*The surface before
+2026-10-07*).
 
 ## Global and routing IDs
-
-The owner's 2026-09-20 pre-release correction replaced the global route grid with per-slot routing.
-Its 108 unsuffixed IDs are retired and never reused; the slot-suffixed IDs below are the permanent
-surface.
 
 Global parameters are:
 
 - `master`;
-- `lfo1_rate`, `lfo1_shape`, `lfo1_sync`, and the matching `lfo2_*` and `lfo3_*`. The rejected pre-release `lfo{1,2,3}_division` ids are retired.
+- `lfo1_rate`, `lfo1_shape`, `lfo1_sync`, and the matching `lfo2_*` and `lfo3_*`;
+- `resample`, an instance setting presets never carry.
 
-The fixed route sources, in evaluation order, are `lfo1`, `lfo2`, `lfo3`, `wheel`, `pressure`,
-`velocity`, `random`. The fixed targets are `pitch`, `pitch_env`, `pitch_decay`, `decay`, `attack`,
-`tone`, `body`, `noise`, `noise_decay`, `character`, `dynamics`, `level`, `pan`.
-
-For every slot/target/source combination two permanent IDs exist:
+**Four route slots per drum** (the owner's principle: the host holds what the panel can show at
+once), each three IDs:
 
 ```text
-route_<target>_<source>_on_<slot>
-route_<target>_<source>_amount_<slot>
+route<r>_source_<slot>    Off, LFO 1, LFO 2, LFO 3, Wheel, Pressure, Velocity, Random
+route<r>_target_<slot>    Off, Control 1 … Control 20, Level, Pan
+route<r>_amount_<slot>    bipolar −1…+1; one full route reaches its target's full route reach
 ```
 
-That Cartesian product is 1,456 presence/amount pairs across sixteen slots. Optional creative routes
-are all absent and zero in Init. Preset files store the grid sparsely: no fields for an unassigned
-pair, presence alone for an assigned zero route, and both fields for an assigned nonzero route.
-Velocity reaches each hit directly and is not a route. Per-note tuning and channel bend enter model
-pitch directly, not as removable routes.
+with `r` 1…4. A route is in use when neither its source nor its target is Off; switching its source
+off keeps its target and amount; two on one source and target add; one aimed at Controls 12–20 does
+nothing. Each in-use route reaches the target the named control's grid pair reached (Control 1 Tune,
+… as the table above; Level the Amplitude target; Pan the pan), so one route is exactly that pair.
+Optional creative routes are all Off and zero in Init. Preset files store routes sparsely: nothing for
+a route not in use, its source and target for an in-use one at zero, and all three for one with
+depth. Velocity reaches each hit directly (through Dynamics) and is also a route source. Per-note
+tuning and channel bend enter model pitch directly, not as removable routes.
+
+**A recorded deviation**, as mxm-model-drums'. The collection's modulation standard
+(mxm-kit's `crates/mxm-modulation-params`, `plans/plan-modulation-routing.md`) gives every target a
+presence and an amount for every source; this machine's sixteen slots made that 2,912 IDs, and the
+whole surface 3,227. Four route slots a drum make it 651 parameters, by the owner's ruling. The rows
+stay derived from parameters, so a preset alone decides the panel, as the standard requires; the
+plugin-side pair-by-pair reading check (`mxm_plugin_test::routing_checks`) needs a parameter per pair
+and does not apply. The DSP's per-slot route graph and its conformance are unchanged: the plugin fills
+it from the four slots.
 
 The source configurations and route reaches are:
 
@@ -357,20 +385,23 @@ The source configurations and route reaches are:
 - `lfo3_rate`: 0.05–20 Hz, default 4.00 Hz; `lfo3_shape`: Sine by default.
 - every `sync` defaults off; when on, that LFO's `rate` position selects 4 bars through 1/32,
   including dotted and triplet values. Invalid or absent host tempo falls back to free Rate.
-- one full Pitch route reaches 12 semitones and one full Level route reaches 12 dB;
+- one full Tune route reaches 12 semitones, and one full Level route is the collection's Amplitude
+  factor's whole swing, silence to double (it reached 12 dB before the modulation standard of
+  2026-09-26);
 - every other full route reaches one complete bipolar target unit (100% of that creative axis or
   full pan travel). Several live routes sum, then the target's own valid range clamps once.
 
 Exactly three LFO values are generated once per sample for the whole kit, never once per slot. Wheel and Pressure are per channel projected into
 the slot's sounding channel; Velocity and deterministic bipolar Random are held from that slot's
-latest trigger. Route amounts smooth for 15 ms. Presence is discrete and an absent pair contributes
-nothing while retaining its dormant amount. An assigned route at settled zero remains assigned and
-visible but is omitted from the compact per-sample DSP list; moving it away from zero activates it
-again.
+latest trigger. Route amounts smooth for 15 ms. A route not in use contributes nothing while
+retaining its amount. An in-use route at settled zero remains visible but is omitted from the compact
+per-sample DSP list; moving it away from zero activates it again. *(Until 2026-10-07 the same held
+of the grid's pairs: presence was discrete, and an absent pair retained its dormant amount.)*
 
 ## Init assignments
 
-All shaping deviations and optional route amounts begin at zero; route presences are absent. LFO
+All shaping deviations and optional route amounts begin at zero; every route's source and target is
+Off (route presences were absent, until 2026-10-07). LFO
 rates/shapes are useful configurations and Sync begins off. Each model's fixed output adaptation reaches the common
 reference peak at Level 0 dB; factory presets then use visible Level values for their role hierarchy.
 Pan is centred, and Master is open. The final sixteen model defaults are:

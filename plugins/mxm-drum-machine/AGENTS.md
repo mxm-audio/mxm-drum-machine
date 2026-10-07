@@ -16,7 +16,7 @@ the linked section before changing what a rule governs.
 
 Owns `Cargo.toml`, `README.md`, `control-map.json`, `src/`, `presets/`, `tests/` and `host-tests/`;
 the licence is the repository's `LICENSE`. It owns
-permanent CLAP/parameter identity, parameter smoothing, host event translation, telemetry and editor.
+CLAP/parameter identity, parameter smoothing, host event translation, telemetry and editor.
 DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`](../../crates/mxm-drum-machine-dsp/AGENTS.md).
 
 # Local Contracts
@@ -43,22 +43,34 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
 ## Drums ([NOTES.md § Implemented drums](NOTES.md#implemented-drums-deliberate-behavior))
 
 - **Quick repeated strikes continue from live state: never reset phase/state on NoteOn.**
-- Routes are the collection's modulation standard: every amount is
-  `mxm_modulation_params::reading::amount_param`; `level` routes read Amplitude in percent, their
-  ids stay `route_level_*` (`every_route_parameter_says_what_the_dsp_does`).
+- A route reaches what the collection's modulation standard reaches (the DSP's `FULL_SCALE`,
+  held by its `conformance`). One amount serves every target, so the host reads it as a percentage
+  of its target's reach, and `routing_checks`' pair-by-pair readings do not apply: a **recorded
+  deviation** (2026-10-07), as model-drums' (`a_route_amount_travels_what_every_pair_is_offered`).
 - **A hit is its own velocity**: no accent bus or control. Notes landing on one slot at one sample
   reduce to one strike at the **winning owner's own** velocity (`ArbitrationResult::owner_strike`).
 - Model behaviour, shared sources and calibration belong to the DSP crate; fidelity remains
   hardware-unverified.
 
-## Parameter surface ([NOTES.md § Parameters](NOTES.md#permanent-parameter-and-routing-surface))
+## Parameter surface ([NOTES.md § Parameters](NOTES.md#parameter-and-routing-surface))
 
-- All sixteen slots carry Model, Pitch, Pitch envelope, Pitch decay, Decay, Attack, Tone, Body,
-  Noise, Noise decay, Character, Dynamics, Level, Pan, Mute and Solo whatever the model; changing
-  Model never changes the host parameter inventory. Every default is zero, the reference sound.
-- IDs are `<suffix>_<slot>`, one-based (`pitch_env_N`, `pitch_decay_N`, `noise_decay_N`, `mute_N`,
-  `solo_N`, `output_N`, `choke_group_N`, `midi_channel_N`). Output is stepped `L+R`, `1`…`16`;
-  MIDI channel `Kit`, `Ch 1`…`Ch 16`; Choke group `Off`, `1`…`16`.
+- **mxm-model-drums' scheme: the host holds what the panel can show at once** (the owner,
+  2026-09-30, for this machine; done 2026-10-07). A slot is `model`, twenty general controls
+  `c01`…`c20` (host name `Control k`), `level`, `pan`, `mute`, `solo`, `choke_group`, `output`,
+  `midi_channel` and four route slots `route<r>_{source,target,amount}`; kit-wide are `master`,
+  `lfo{1,2,3}_{rate,shape,sync}` and `resample` (`params::slot_ids`, `GLOBAL_IDS`;
+  `the_ids_are_complete_unique_and_651`). Nested arrays add `_<slot>`, one-based.
+- **The controls are the named ones of before, mechanically** (the owner, 2026-10-07): `params::control`
+  holds which is which — model-drums' common seven first (Tune, Decay, Tone, Attack, then
+  Dynamics in Velocity's place, Pitch envelope in Pitch drop's, Pitch decay), then Body, Noise,
+  Noise decay, Character. Each keeps its range, default, unit, smoothing and path into the DSP;
+  every kit sounds bit-identical ([NOTES.md § the move](NOTES.md#the-move-to-general-controls-and-route-slots-2026-10-07)).
+  Controls 12–20 mean nothing on any model: never read, never drawn. Per-model redesign is later.
+- **IDs are free to change during pre-alpha** (the owner, 2026-10-07), a recorded deviation from
+  `../AGENTS.md`'s *Permanent identifiers* until the first release; nothing migrates old IDs ("There
+  are no saved projects - we are in pre alpha", 2026-09-30). Changing Model never changes the host
+  parameter inventory; every default is zero, the reference sound.
+- Output is stepped `L+R`, `1`…`16`; MIDI channel `Kit`, `Ch 1`…`Ch 16`; Choke group `Off`, `1`…`16`.
 - **Choke group is a kit setting** (presets, Init and every factory kit carry it, all `Off`).
   **Output, MIDI channel and `resample` are instance settings**, excluded from preset capture, apply,
   Init, completeness, identity baseline and dirty comparison through
@@ -67,27 +79,35 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   sound, so Mute wins.
 - Model stores 0…255; the editor maps the available catalogue onto the grouped `mxm-ui` caret
   selector. An unavailable ID displays `Unavailable N` and renders silence.
-- Globals are `master` and `lfo{1,2,3}_{rate,shape,sync}`: exactly three kit LFOs, never per slot;
-  `sync` is one button snapping Rate to a division; no valid tempo means the free Rate.
-- Routes are `route_<target>_<source>_on_<slot>` / `_amount_<slot>`, starting absent. Presence alone
-  decides whether a route exists; amount zero never removes it; removing one keeps its dormant
-  amount. Route trees and the shell's DSP engine are boxed, so no host thread's stack overflows.
-- **Permanently retired, never reused**: `lfo{1,2,3}_division` and the 108 unsuffixed global
-  `route_<target>_<source>_{on,amount}` ids.
+- Exactly three kit LFOs, never per slot; `sync` is one button snapping Rate to a division; no valid
+  tempo means the free Rate.
+- **Four route slots a drum**: source `Off`, LFO 1–3, Wheel, Pressure, Velocity, Random; target
+  `Off`, `Control 1`…`20`, `Level`, `Pan` (`routes::RouteTarget`). A route is in use when neither is
+  Off; switching its source off keeps its target and amount; two on one source and target add; one
+  aimed at Controls 12–20 does nothing. `Routes::routing_from` fills the DSP's unchanged per-slot
+  grid; an in-use route at settled zero leaves its per-sample list. Controls, routes and the shell's
+  DSP engine are boxed, so no host thread's stack overflows.
+- The 3,227-parameter surface's IDs (`pitch_N`…, `route_<target>_<source>_{on,amount}_N`) and the
+  older `lfo{1,2,3}_division` and unsuffixed route IDs are gone; their history is in
+  [NOTES.md](NOTES.md#the-surface-before-2026-10-07).
 
 ## Interface ([NOTES.md § Interface](NOTES.md#interface))
 
 - The editor implements [`../../docs/briefs/mxm-drum-machine.md`](../../docs/briefs/mxm-drum-machine.md).
-  No standalone Routes card: each continuous control's route stack is in the card that owns it,
-  bound to the selected slot. Each LFO row is Rate, Sync, then six **drawn** shapes.
+  No standalone Routes card: each knob's routes are rows under it, over the selected slot's four
+  route slots, as model-drums' editor draws them (`route_stack`): `‹ modulate ›` offers the sources
+  not on it while a slot is free, adding takes a free slot (one aimed at that knob first) in one
+  bracketed gesture, removing switches the source off. Each LFO row is Rate, Sync, then six
+  **drawn** shapes.
 - Output is the last card: Level/Pan, Output, Choke group, MIDI channel, then **All slots**
   (`binding::set_together`), which is not a parameter and stores nothing.
 - **Kit-wide controls sit in the app bar**: Master, then Resample and Export samples, sized from the
   widest label (`resample_pair_width`) and the last thing a narrow bar folds into `…`
   (`resample_menu_items`). The button reads "Export samples", never "Export pack".
-- Labels: Pitch reads Tune; snare Noise reads Snappy. Unsupported controls stay visible and
-  disabled. **No engineering prose in editor copy**; the model's description is the selector's
-  hover text, in the sound's words.
+- **The panel names a control as before, the host by its number** (`Axis::name`): Tune, Decay, …;
+  snare Noise reads Snappy. Route rows read the DSP's target names (Tune's *Tune*, Level's
+  *Amplitude*). Unsupported controls stay visible and disabled. **No engineering prose in editor
+  copy**; the model's description is the selector's hover text, in the sound's words.
 - Selection is transient editor state; clicking a slot never auditions it and selection never moves
   a control. Durable edits are bracketed gestures through one binding module.
 - The Model card's sound trace renders off the audio thread from the actual DSP model; never a
@@ -101,15 +121,17 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   manufacturer names (`README.md` maps them), on one fixed role map: 1–5 Kick/Snare/low/mid/high
   drum; 6–8 pitched percussion; 9 Rim; 10 Clap; 11/12 closed/open hat; 13 Cymbal; 14 Cowbell; 15
   Clave; 16 auxiliary. A missing role is muted, never filled. All 94 models appear exactly once.
-- Kits never carry Output or MIDI channel. Routing is sparse: an unassigned pair stores nothing, an
-  assigned zero route presence alone, an assigned nonzero route both.
+- Kits never carry Output or MIDI channel. Routes are sparse: a route not in use stores nothing, an
+  in-use one its source and target, and its amount when nonzero; an omission loads as the default.
+  Kits carry Controls 12–20, at zero.
 
 ## Resample and the sample pack ([§ Resample](NOTES.md#resample-is-an-instance-setting-and-the-capture-happens-at-activation), [§ pack](NOTES.md#the-sample-pack--packrs))
 
 - `resample` is off in Init and every kit; no kit engages it. `refresh_captures` runs in `activate`,
   never in `process`; a failed capture leaves the instrument live.
 - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
-  sound. To change a frozen kit: off, edit, on. Pitch and Decay stay live as playback controls.
+  sound. To change a frozen kit: off, edit, on. Tune and Decay (Controls 1 and 2) stay live as
+  playback controls.
 - Running toggles go to `capture_worker::CaptureWorker`, one thread per instance joined in its
   `Drop`. **Never use nice-plug's `AsyncExecutor::execute_background`; `task_executor` stays a no-op.**
 - `service_captures` is a pointer swap with no allocation, lock or drop. `CaptureBank` hands kits
@@ -117,7 +139,7 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   (`MxmDrumMachine::engagement`) and rate installs; the worker abandons overtaken renders.
 - A test standing in for the worker stops it first (`plugin.worker = None`).
 - `pack.rs` writes 24-bit WAV one-shots and a manifest through mxm-kit's `mxm-audio-file`, never
-  `mxm-audio-file-decode`. Files stop before the mix: unity gain, centred, Pitch and Decay applied
+  `mxm-audio-file-decode`. Files stop before the mix: unity gain, centred, Tune and Decay applied
   (`the_mix_cannot_change_an_exported_byte`). A pack's rate is fixed (`editor::PACK_SAMPLE_RATE`),
   whatever the host runs at; the capture that plays follows the host.
 - Export requires Resample engaged (otherwise disabled, with its reason), runs on the capture thread
@@ -155,7 +177,10 @@ clap-validator validate "target/bundled/mxm-drum-machine.clap"
 cargo test -p mxm-drum-machine-host-tests      # through MXM Player, against that bundle
 ```
 
-The pre-D7 compatibility fixture, the editor's standard and tree checks, review pictures
+**A change that must not move the sound** is proved with the same-sound harness, run before and
+after and compared (`cargo test -p mxm-drum-machine --lib same_sound_digests -- --ignored
+--nocapture`), and with the host test's recorded kit render. The recorded-kit fixture, the editor's
+standard and tree checks, review pictures
 (`MXM_PICTURES=after cargo test -p mxm-drum-machine --lib tree_pictures -- --ignored`) and the full
 coverage list: [NOTES.md § Verification evidence](NOTES.md#verification-evidence). Hardware
 fidelity, real multi-output DAW restoration, Linux and macOS remain unverified. *Since the split

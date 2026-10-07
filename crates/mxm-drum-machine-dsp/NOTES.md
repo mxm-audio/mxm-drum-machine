@@ -153,6 +153,18 @@ published as `v − 1` (resting at full before a slot's first hit), Wheel and Pr
 standard, Random as `standard::random`. No kit carries a route, so no kit moved. `conformance.rs`'s
 `Declared` runs the standard's checks — the release check on a short model, since a hit ends by
 itself — each falsified once; the plugin's tests reuse it through the `conformance` feature.
+**Since 2026-10-07 the plugin's route parameters are four route slots a drum** (mxm-model-drums'
+scheme, the owner's ruling; the plugin's `NOTES.md`), which it writes into this grid each block:
+the grid, its reaches and these checks are unchanged, and the plugin holds its one amount
+parameter's travel to every pair's offer rather than each pair's reading. This crate's `AGENTS.md`
+read, until then:
+
+> - Each slot owns its own 13-target × 7-source topology and `SourceFrame`; a route never crosses
+>   slots. Three kit-wide LFOs run once per sample and always free-run. A newly needed source is
+>   cleared before its first read; an absent route keeps its amount.
+> - Every route is the collection's standard: Amplitude (`level`) is the standard factor, Velocity is
+>   `v − 1`. `conformance.rs`'s `Declared` runs the checks; the plugin reuses it (`conformance`).
+>   Randomness is seeded; the plugin resolves LFO rates and tempo sync.
 Randomness has an explicit seed and reset restores the same sequence. The plugin resolves free or
 host-tempo-synchronised LFO rates before this framework-free layer receives them.
 
