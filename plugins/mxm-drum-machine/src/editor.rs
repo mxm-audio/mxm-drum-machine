@@ -1,10 +1,12 @@
 //! Reflowing editor for the sixteen-slot vertical slice.
 //!
 //! **The panel names a control by the model; the host by its number** (mxm-model-drums' scheme, the
-//! owner, 2026-09-30): a knob paints the name it always had — Tune, Decay, Snappy — over a general
-//! `Control k`, and each knob's routes are rows over the slot's four route slots.
+//! owner, 2026-09-30): a knob paints its model's name for it — Tune, Decay, Snappy — over a general
+//! `Control k`, and each knob's routes are rows over the slot's four route slots, named as the knob
+//! is. **A model shows only the controls its code reads** (the owner, 2026-10-07; [`controls`]).
 
 pub mod binding;
+pub mod controls;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +15,6 @@ use egui::Ui;
 use mxm_drum_machine_dsp::SLOT_COUNT;
 use mxm_drum_machine_dsp::engine::{Engine, SlotPatch, TriggerGroup};
 use mxm_drum_machine_dsp::model::{AVAILABLE_MODELS, Capabilities, ModelId, available};
-use mxm_drum_machine_dsp::routing::{TARGET_NAMES, target};
 use mxm_ui::control::{self, ParamView, Size, Steps, Wave, Wheel};
 use mxm_ui::space::{MIN_TARGET, SPACE_2, SPACE_3, SPACE_5};
 use mxm_ui::theme::Tokens;
@@ -27,7 +28,8 @@ use nice_plug_egui::{EguiEditorState, NiceEguiApp, create_egui_editor};
 use self::binding::{
     Bound, selector as bound_selector, set_together, toggle_compact as bound_toggle_compact,
 };
-use crate::params::{MxmDrumMachineParams, SlotParams, at, slot_ids};
+use crate::params::control as general;
+use crate::params::{CONTROLS, MxmDrumMachineParams, SlotParams, at, slot_ids};
 use crate::routes::{ROUTES, RouteParams, RouteTarget, SourceChoice};
 use crate::telemetry::Telemetry;
 
@@ -35,8 +37,9 @@ pub use mxm_preset::PresetUi;
 
 /// The opening size: the quarter-4K budget, hugged. MEASURED by
 /// `the_opening_size_is_the_budget_hugged`, which fails with the size it should be — it was
-/// (1600, 850) by hand, which opened 320 px narrower and 124 px taller than the panel wanted.
-const REFERENCE: (u32, u32) = (1755, 1078);
+/// (1600, 850) by hand, which opened 320 px narrower and 124 px taller than the panel wanted; it fell
+/// again on 2026-10-07, when the kick at Init stopped drawing the Noise knobs it does not read.
+const REFERENCE: (u32, u32) = (1755, 1042);
 /// The smallest window this editor advertises: the wider of the widest card with the workspace's
 /// gutters and the app bar at its last compact step, Resample and Export samples in its `…` menu.
 /// The bar decides it, and `the_app_bar_holds_in_the_minimum_window` measures it; the card alone
@@ -99,7 +102,7 @@ const EXPORT_HELP: &str = "Choose a folder and write this kit into it as numbere
 /// Why the export cannot be used, on both forms.
 const EXPORT_DISABLED: &str = "Turn Resample on first: a pack is the samples you are hearing.";
 /// Resample's help, on the bar's toggle and on its row in the `…` menu alike.
-const RESAMPLE_HELP: &str = "Plays every slot from a recording of itself; Tune and Decay still work. To change anything else, turn this off, edit, and turn it on again.";
+const RESAMPLE_HELP: &str = "Plays every slot from a recording of itself; Tune, Decay and Soft hits still work. To change anything else, turn this off, edit, and turn it on again.";
 /// The pair's rows in the app bar's `…` menu at the bar's last step ([`resample_menu_items`]).
 const RESAMPLE_ITEM: usize = 0;
 const EXPORT_ITEM: usize = 1;
@@ -450,139 +453,131 @@ pub fn page_items(
 // follows the selected slot: its model's labels, what it can shape, and its route stacks.
 // ---------------------------------------------------------------------------------------------
 
-/// One of the selected slot's shaping or output axes: a knob, and the route stack beneath it.
+/// One of the selected slot's knobs and the route stack beneath it: a general control by number,
+/// or the output stage's Level or Pan.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Axis {
-    Tune,
-    Attack,
-    Dynamics,
-    Body,
-    Noise,
-    Character,
-    Decay,
-    Tone,
-    NoiseDecay,
-    PitchEnv,
-    PitchDecay,
+    /// General control `k`, 1…20 (`params::control` names the eleven this machine uses).
+    Control(u8),
     Level,
     Pan,
 }
 
-impl Axis {
-    /// The general control it is, by number (`params::control`); `None` for Level and Pan.
-    fn control(self) -> Option<usize> {
-        use crate::params::control;
-        Some(match self {
-            Self::Tune => control::TUNE,
-            Self::Attack => control::ATTACK,
-            Self::Dynamics => control::DYNAMICS,
-            Self::Body => control::BODY,
-            Self::Noise => control::NOISE,
-            Self::Character => control::CHARACTER,
-            Self::Decay => control::DECAY,
-            Self::Tone => control::TONE,
-            Self::NoiseDecay => control::NOISE_DECAY,
-            Self::PitchEnv => control::PITCH_ENV,
-            Self::PitchDecay => control::PITCH_DECAY,
-            Self::Level | Self::Pan => return None,
-        })
-    }
+/// The shaping cards' knobs, by control number, in rows: **each a model shows** (`controls`).
+const EXCITATION: &[&[usize]] = &[&[general::TUNE, general::ATTACK, general::DYNAMICS]];
+const BODY: &[&[usize]] = &[&[general::BODY, general::NOISE, general::CHARACTER]];
+const ENVELOPES_TONE: &[&[usize]] = &[
+    &[general::DECAY, general::TONE, general::NOISE_DECAY],
+    &[general::PITCH_ENV, general::PITCH_DECAY],
+];
 
-    /// What its knob is called on the panel: the name it had before the controls became general,
-    /// whatever the host calls the parameter. Snare noise reads *Snappy*.
-    fn name(self, p: &SlotParams) -> &'static str {
+impl Axis {
+    #[cfg(test)]
+    const TUNE: Self = Self::Control(general::TUNE as u8);
+    #[cfg(test)]
+    const DECAY: Self = Self::Control(general::DECAY as u8);
+    #[cfg(test)]
+    const BODY: Self = Self::Control(general::BODY as u8);
+
+    /// The general control it is, by number; `None` for Level and Pan.
+    fn control(self) -> Option<usize> {
         match self {
-            Self::Tune => "Tune",
-            Self::Attack => "Attack",
-            Self::Dynamics => "Dynamics",
-            Self::Body => "Body",
-            Self::Noise => noise_amount_label(p.model_id()),
-            Self::Character => "Character",
-            Self::Decay => "Decay",
-            Self::Tone => "Tone",
-            Self::NoiseDecay => "Noise decay",
-            Self::PitchEnv => "Pitch envelope",
-            Self::PitchDecay => "Pitch decay",
-            Self::Level => "Level",
-            Self::Pan => "Pan",
+            Self::Control(k) => Some(usize::from(k)),
+            Self::Level | Self::Pan => None,
         }
     }
 
-    /// What it tells the player, on hover.
-    const fn help(self) -> &'static str {
+    /// **Whether `model`'s panel shows it** (the owner, 2026-10-07: only the controls that do
+    /// something for that model, from `controls`' table). Level and Pan always; a legacy Off or an
+    /// unavailable id, which plays nothing, keeps the eleven general controls, every one disabled,
+    /// so its cards stay what they are.
+    fn shown(self, model: ModelId) -> bool {
+        match self.control() {
+            None => true,
+            Some(k) if available(model).is_none() => k <= general::USED,
+            Some(k) => controls::face(model, k).is_some(),
+        }
+    }
+
+    /// What its knob and its route rows are called on `model`'s panel: the model's own name for
+    /// the control, or — where the model does not show it — the control's general name.
+    fn name(self, model: ModelId) -> &'static str {
         match self {
-            Self::Tune => "Tunes this drum using its own pitch behaviour.",
-            Self::Attack => "Softens or emphasizes the start of the sound.",
-            Self::Dynamics => "Changes how strongly playing velocity affects this drum.",
-            Self::Body => "Changes the weight of the drum's tonal body.",
-            Self::Noise => "Balances the noise or snappy part of the sound.",
-            Self::Character => "Changes the drum's bite and colour.",
-            Self::Decay => "Shortens or lengthens the sound.",
-            Self::Tone => "Darkens or brightens the sound.",
-            Self::NoiseDecay => {
-                "Shortens or lengthens the noise part without changing the tonal body."
+            Self::Level => "Level",
+            Self::Pan => "Pan",
+            Self::Control(k) => {
+                let k = usize::from(k);
+                controls::face(model, k).map_or_else(|| controls::general_name(k), |f| f.name)
             }
-            Self::PitchEnv => "Reduces or increases the drum's pitch movement.",
-            Self::PitchDecay => "Changes how quickly the moving pitch settles.",
+        }
+    }
+
+    /// What it tells the player, on hover: what it does to `model`.
+    fn help(self, model: ModelId) -> &'static str {
+        match self {
             Self::Level => "Volume of the selected slot.",
             Self::Pan => "Stereo position; a slot on an output of its own ignores it.",
+            Self::Control(k) => {
+                let k = usize::from(k);
+                controls::face(model, k).map_or_else(|| controls::general_help(k), |f| f.help)
+            }
         }
     }
 
     /// The axis's parameter in `slot`, as its knob draws it.
     fn bound(self, params: &MxmDrumMachineParams, slot: usize) -> Bound<'_> {
         let p = &params.slots[slot];
+        let model = p.model_id();
         let ids = slot_ids(slot);
         match self {
-            Self::Level => Bound::new(ids[at::LEVEL], &p.level, self.help()),
-            Self::Pan => Bound::new(ids[at::PAN], &p.pan, self.help()).bipolar(),
-            _ => {
-                let k = self.control().expect("a control axis");
-                Bound::new(ids[at::control(k)], p.controls.get(k), self.help())
-                    .labelled(self.name(p))
+            Self::Level => Bound::new(ids[at::LEVEL], &p.level, self.help(model)),
+            Self::Pan => Bound::new(ids[at::PAN], &p.pan, self.help(model)).bipolar(),
+            Self::Control(k) => {
+                let k = usize::from(k);
+                Bound::new(ids[at::control(k)], p.controls.get(k), self.help(model))
+                    .labelled(self.name(model))
                     .bipolar()
             }
         }
     }
 
-    /// Whether the selected slot can use it. An axis it cannot use stays visible and disabled.
+    /// Whether the selected slot can move it now: a control its model uses, narrowed while Resample
+    /// holds the slot frozen ([`shaping_capabilities`]). A shown control it cannot move draws
+    /// disabled.
     fn enabled(self, capabilities: &Capabilities) -> bool {
-        match self {
-            Self::Tune => capabilities.pitch,
-            Self::Attack => capabilities.attack,
-            Self::Dynamics => capabilities.dynamics,
-            Self::Body => capabilities.body,
-            Self::Noise => capabilities.noise,
-            Self::Character => capabilities.character,
-            Self::Decay => capabilities.decay,
-            Self::Tone => capabilities.tone,
-            Self::NoiseDecay => capabilities.noise_decay,
-            Self::PitchEnv => capabilities.pitch_envelope,
-            Self::PitchDecay => capabilities.pitch_decay,
-            Self::Level | Self::Pan => true,
+        match self.control() {
+            None => true,
+            Some(general::TUNE) => capabilities.pitch,
+            Some(general::DECAY) => capabilities.decay,
+            Some(general::TONE) => capabilities.tone,
+            Some(general::ATTACK) => capabilities.attack,
+            Some(general::DYNAMICS) => capabilities.dynamics,
+            Some(general::PITCH_ENV) => capabilities.pitch_envelope,
+            Some(general::PITCH_DECAY) => capabilities.pitch_decay,
+            Some(general::BODY) => capabilities.body,
+            Some(general::NOISE) => capabilities.noise,
+            Some(general::NOISE_DECAY) => capabilities.noise_decay,
+            Some(general::CHARACTER) => capabilities.character,
+            Some(_) => false,
         }
     }
 
     /// What its route rows carry.
     fn target(self) -> RouteTarget {
         match self {
+            Self::Control(k) => RouteTarget::Control(k),
             Self::Level => RouteTarget::Level,
             Self::Pan => RouteTarget::Pan,
-            _ => RouteTarget::Control(self.control().expect("a control axis") as u8),
         }
     }
 
-    /// What its route rows are named for: the DSP's target name (Level's routes move *Amplitude*,
-    /// the collection's standard target), except that Tune's read *Tune*, as its knob does, never
-    /// *Pitch*.
-    fn routed_name(self) -> &'static str {
-        match self
-            .target()
-            .dsp()
-            .expect("every axis is one of the DSP's targets")
-        {
-            target::PITCH => "Tune",
-            target => TARGET_NAMES[target],
+    /// The line over its route rows: its name, and — for a control `model` does not show, whose
+    /// routes are kept on the panel so that nothing is dropped unseen — that it is unused.
+    fn stack_label(self, model: ModelId) -> String {
+        if self.shown(model) {
+            self.name(model).to_owned()
+        } else {
+            format!("{} (unused)", self.name(model))
         }
     }
 }
@@ -671,29 +666,17 @@ fn card(ui: &Ui, index: usize, params: &MxmDrumMachineParams, slot: usize) -> No
                 ),
             ])
         }
-        4 => shaping(
-            ui,
-            params,
-            slot,
-            &capabilities,
-            &[&[Axis::Tune, Axis::Attack, Axis::Dynamics]],
-        ),
-        5 => shaping(
-            ui,
-            params,
-            slot,
-            &capabilities,
-            &[&[Axis::Body, Axis::Noise, Axis::Character]],
-        ),
+        4 => shaping(ui, params, slot, &capabilities, EXCITATION, &[]),
+        5 => shaping(ui, params, slot, &capabilities, BODY, &[]),
+        // The last shaping card also keeps any route still aimed at a control no model of this
+        // machine uses (12–20), so a route the host set there is seen, never silently dropped.
         6 => shaping(
             ui,
             params,
             slot,
             &capabilities,
-            &[
-                &[Axis::Decay, Axis::Tone, Axis::NoiseDecay],
-                &[Axis::PitchEnv, Axis::PitchDecay],
-            ],
+            ENVELOPES_TONE,
+            &(general::USED + 1..=CONTROLS).collect::<Vec<_>>(),
         ),
         // The selected slot's output stage: how loud it is, where it sits and where it leaves,
         // followed by the one kit-wide row that routes every slot at once. The kit-wide controls
@@ -731,27 +714,49 @@ fn card(ui: &Ui, index: usize, params: &MxmDrumMachineParams, slot: usize) -> No
     }
 }
 
-/// A shaping card: rows of knobs, then — `SPACE_3` below them — each axis's route stack, in the
-/// order its knob reads. An axis the slot cannot use is disabled, knob and stack both.
+/// A shaping card: rows of the knobs the slot's model shows (`rows`, by control number), then —
+/// `SPACE_3` below them — each shown knob's route stack, in the order its knob reads. **A control
+/// the model does not show has no knob**, and its stack is drawn only while a route is still aimed
+/// at it, as are those of `unused` controls: so a route left on a control by a change of model is
+/// seen and can be removed, never kept unseen. A shown control the slot cannot move now (Resample)
+/// is disabled, knob and stack both.
 fn shaping(
     ui: &Ui,
     params: &MxmDrumMachineParams,
     slot: usize,
     capabilities: &Capabilities,
-    rows: &[&[Axis]],
+    rows: &[&[usize]],
+    unused: &[usize],
 ) -> Node<Leaf> {
+    let p = &params.slots[slot];
+    let model = p.model_id();
+    let axis = |k: usize| Axis::Control(k as u8);
     let mut body: Vec<Node<Leaf>> = rows
         .iter()
-        .map(|axes| knob_row(ui, params, slot, capabilities, axes))
+        .map(|row| {
+            row.iter()
+                .map(|&k| axis(k))
+                .filter(|axis| axis.shown(model))
+                .collect::<Vec<_>>()
+        })
+        .filter(|axes| !axes.is_empty())
+        .map(|axes| knob_row(ui, params, slot, capabilities, &axes))
         .collect();
-    for (n, axis) in rows.iter().flat_map(|axes| axes.iter()).enumerate() {
-        let routes = routes_leaf(ui, params, slot, *axis, capabilities);
+    let stacks = rows
+        .iter()
+        .flat_map(|row| row.iter())
+        .chain(unused)
+        .map(|&k| axis(k))
+        .filter(|axis| axis.shown(model) || !routes_on(p, axis.target()).is_empty());
+    for (n, axis) in stacks.enumerate() {
+        let routes = routes_leaf(ui, params, slot, axis, capabilities);
         body.push(if n == 0 { pad(SPACE_3, routes) } else { routes });
     }
     stack(body)
 }
 
-/// The collection's knob row (`mxm_ui::tree::knob_row`), a disabled axis dimmed in its column.
+/// The collection's knob row (`mxm_ui::tree::knob_row`), an axis the slot cannot move now dimmed in
+/// its column.
 fn knob_row(
     ui: &Ui,
     params: &MxmDrumMachineParams,
@@ -794,7 +799,9 @@ fn routes_leaf(
     axis: Axis,
     capabilities: &Capabilities,
 ) -> Node<Leaf> {
-    let size = stack_size(ui, axis.routed_name(), &params.slots[slot], axis.target());
+    let p = &params.slots[slot];
+    let model = p.model_id();
+    let size = stack_size(ui, &axis.stack_label(model), p, axis, model);
     let stack = leaf(
         Leaf::Routes(slot, axis),
         Kind::Custom {
@@ -803,7 +810,8 @@ fn routes_leaf(
             fills: true,
         },
     );
-    if axis.enabled(capabilities) {
+    // An unused control's routes stay live, so they can be removed.
+    if !axis.shown(model) || axis.enabled(capabilities) {
         stack
     } else {
         tree::disabled(stack)
@@ -1253,6 +1261,16 @@ fn free_route(p: &SlotParams, target: RouteTarget) -> Option<usize> {
         .or_else(|| (0..ROUTES).find(|&r| free(r)))
 }
 
+/// The sources `axis`'s add menu offers on `model`'s panel: none on a control the model does not
+/// show — a route already there is drawn but never offered more — and otherwise [`offered`].
+fn offered_on(p: &SlotParams, axis: Axis, model: ModelId) -> Vec<SourceChoice> {
+    if axis.shown(model) {
+        offered(p, axis.target())
+    } else {
+        Vec::new()
+    }
+}
+
 /// The sources the add menu offers on `target`: those not already moving it, while a slot is free.
 fn offered(p: &SlotParams, target: RouteTarget) -> Vec<SourceChoice> {
     if free_route(p, target).is_none() {
@@ -1292,7 +1310,8 @@ fn add_route(p: &SlotParams, target: RouteTarget, source: SourceChoice, setter: 
 /// What [`route_stack`] occupies, without drawing it: at its narrowest the widest row any source
 /// could draw, or the target's line; its height as the patch stands. The collection's own stack's
 /// rule (`mxm_modulation_params::ui::stack_size`), over this plugin's route slots.
-fn stack_size(ui: &Ui, panel: &str, p: &SlotParams, target: RouteTarget) -> egui::Vec2 {
+fn stack_size(ui: &Ui, panel: &str, p: &SlotParams, axis: Axis, model: ModelId) -> egui::Vec2 {
+    let target = axis.target();
     let spacing = ui.spacing().item_spacing;
     let inset = 2.0 * mxm_ui::tree::GROUP_INSET;
     let amount: &dyn binding::ErasedParam = &p.routes.route1.amount;
@@ -1317,7 +1336,7 @@ fn stack_size(ui: &Ui, panel: &str, p: &SlotParams, target: RouteTarget) -> egui
         .collect();
     let height = if !rows.is_empty() {
         inset + line.y + SPACE_2 + rows.iter().sum::<f32>() + SPACE_2 * (rows.len() - 1) as f32
-    } else if !offered(p, target).is_empty() {
+    } else if !offered_on(p, axis, model).is_empty() {
         line.y
     } else {
         0.0
@@ -1335,9 +1354,9 @@ fn route_stack(
     setter: &ParamSetter<'_>,
     entries: &mut HashMap<&'static str, Option<String>>,
 ) {
-    let target = axis.target();
-    let on = routes_on(p, target);
-    let offered = offered(p, target);
+    let model = p.model_id();
+    let on = routes_on(p, axis.target());
+    let offered = offered_on(p, axis, model);
     if !on.is_empty() {
         mxm_ui::shell::group(ui, tokens, |ui| {
             target_line(ui, tokens, p, axis, &offered, setter);
@@ -1350,7 +1369,9 @@ fn route_stack(
     }
 }
 
-/// The knob's line: its routes' name, and `‹ modulate ›` offering the sources it can still take.
+/// The knob's line: its routes' name — the knob's own — and `‹ modulate ›` offering the sources it
+/// can still take. Over a control the model does not show, the line says it is unused and offers
+/// nothing.
 fn target_line(
     ui: &mut Ui,
     tokens: &Tokens,
@@ -1359,11 +1380,18 @@ fn target_line(
     offered: &[SourceChoice],
     setter: &ParamSetter<'_>,
 ) {
-    let name = axis.routed_name();
+    let model = p.model_id();
+    let name = axis.stack_label(model);
     if offered.is_empty() {
         ui.horizontal(|ui| {
             ui.set_min_height(MIN_TARGET);
-            ui.label(egui::RichText::new(name).color(tokens.text_primary));
+            let label = ui.label(egui::RichText::new(&name).color(tokens.text_primary));
+            if !axis.shown(model) {
+                label.on_hover_text(format!(
+                    "This drum has no {}, so these routes move nothing. Remove them to free their slots.",
+                    axis.name(model)
+                ));
+            }
         });
         return;
     }
@@ -1375,7 +1403,7 @@ fn target_line(
     let changed = control::selector(
         ui,
         tokens,
-        name,
+        &name,
         &labels,
         &mut chosen,
         None,
@@ -1402,13 +1430,18 @@ fn route_row(
 ) {
     let route: &RouteParams = p.routes.all()[r];
     let ids = slot_ids(slot);
+    let model = p.model_id();
     let source = route.source.value().name();
-    let target = axis.routed_name();
+    // Named as its knob is: Level, not the standard's Amplitude; a snare's Snappy, not Noise.
+    let target = axis.name(model);
     let amount: &dyn binding::ErasedParam = &route.amount;
     let name = format!("{target} from {source}");
     let text = amount.text();
-    let description =
-        format!("How much {source} moves {target}. Signed: below the centre inverts it.");
+    let description = if axis.shown(model) {
+        format!("How much {source} moves {target}. Signed: below the centre inverts it.")
+    } else {
+        format!("This drum has no {target}, so {source} moves nothing here.")
+    };
     let (fine_up, fine_down, coarse_up, coarse_down) = amount.stepping();
     let view = ParamView {
         name: &name,
@@ -1814,14 +1847,16 @@ fn render_sound_preview(patch: SlotPatch, signature: u64) -> SoundPreview {
 /// Which shaping axes the selected slot can actually use, including while frozen.
 ///
 /// The model's own capabilities, narrowed by Resample: a frozen slot plays a recording, so only
-/// the two axes that mean something over a buffer keep working — Tune as a playback rate and
-/// Decay as a shortening envelope (plan §4.7). Everything else holds still until the mode is
-/// switched off.
+/// the three axes that mean something over a buffer keep working — Tune as a playback rate, Decay
+/// as a shortening envelope (plan §4.7) and Soft hits, the velocity curve the buffer is played at
+/// (`mxm_drum_machine_dsp::velocity`). Everything else holds still until the mode is switched off.
+/// *Until 2026-10-07 Soft hits (then Dynamics) drew disabled while frozen, though the frozen hit
+/// read it.*
 ///
-/// **Narrowing the same mask the model already uses is deliberate.** The collection's treatment
-/// for a control that cannot be used is to leave it visible and disabled, and this makes a frozen
-/// axis indistinguishable from an unsupported one — which is right, because to the person in
-/// front of it they are the same thing.
+/// **Narrowing the same mask the model already uses is deliberate**: a frozen control is one the
+/// slot cannot use for now, so it stays on the panel, disabled — the collection's treatment for a
+/// control that cannot be used. A control the model's code never reads is another thing: it has no
+/// knob at all (`controls`, since 2026-10-07; until then it, too, was drawn disabled).
 fn shaping_capabilities(params: &MxmDrumMachineParams, slot: usize) -> Capabilities {
     let capabilities = params.slots[slot].model_id().capabilities();
     if !params.resample.value() {
@@ -1838,15 +1873,7 @@ fn shaping_capabilities(params: &MxmDrumMachineParams, slot: usize) -> Capabilit
         noise: false,
         noise_decay: false,
         character: false,
-        dynamics: false,
-    }
-}
-
-fn noise_amount_label(model: ModelId) -> &'static str {
-    if matches!(model.raw(), 2 | 18 | 29 | 33 | 48 | 55 | 61 | 81 | 91) {
-        "Snappy"
-    } else {
-        "Noise"
+        dynamics: capabilities.dynamics,
     }
 }
 
@@ -2221,9 +2248,9 @@ mod tests {
     }
 
     #[test]
-    fn engaging_resample_freezes_every_axis_but_tune_and_decay() {
-        // A frozen slot plays a recording, so only the two axes that mean something over a buffer
-        // stay live. The rest are narrowed into the same mask an unsupported axis uses, which is
+    fn engaging_resample_freezes_every_axis_but_tune_decay_and_soft_hits() {
+        // A frozen slot plays a recording, so only the three axes that mean something over a
+        // buffer stay live: its rate, its length and the velocity curve it is played at. The rest are narrowed into the same mask an unsupported axis uses, which is
         // what makes them draw disabled rather than merely inert.
         use nice_plug::params::InternalParamMut;
         let params = MxmDrumMachineParams::default();
@@ -2241,6 +2268,7 @@ mod tests {
         let frozen = shaping_capabilities(&params, 0);
         assert_eq!(frozen.pitch, live.pitch, "Tune survives a freeze");
         assert_eq!(frozen.decay, live.decay, "and so does Decay");
+        assert_eq!(frozen.dynamics, live.dynamics, "and Soft hits");
         for (name, value) in [
             ("pitch_envelope", frozen.pitch_envelope),
             ("pitch_decay", frozen.pitch_decay),
@@ -2250,7 +2278,6 @@ mod tests {
             ("noise", frozen.noise),
             ("noise_decay", frozen.noise_decay),
             ("character", frozen.character),
-            ("dynamics", frozen.dynamics),
         ] {
             assert!(!value, "{name} should hold still while frozen");
         }
@@ -2680,7 +2707,7 @@ mod tests {
     /// Every slot's four routes on four knobs of four cards — Tune, Body, Decay, Level — at full
     /// negative depth, the widest reading a row shows, so every route control is painted.
     fn present_every_route(params: &MxmDrumMachineParams) {
-        let knobs = [Axis::Tune, Axis::Body, Axis::Decay, Axis::Level];
+        let knobs = [Axis::TUNE, Axis::BODY, Axis::DECAY, Axis::Level];
         for slot in 0..SLOT_COUNT {
             for (r, axis) in knobs.into_iter().enumerate() {
                 route(params, slot, r, SourceChoice::ALL[r], axis.target(), -1.0);
@@ -2690,18 +2717,21 @@ mod tests {
 
     /// Every id the editor may register from the keyboard: this plugin's parameters but the ones no
     /// control draws — a route's target, which is the knob its row sits under and is written by
-    /// adding the route, and controls 12–20, which no model of this machine uses — plus the kit-wide
-    /// output row, which carries a cursor scope without storing anything of its own and writes the
-    /// sixteen `output_*` settings.
+    /// adding the route, and each slot's controls its model does not show (12–20 on every model) —
+    /// plus the kit-wide output row, which carries a cursor scope without storing anything of its
+    /// own and writes the sixteen `output_*` settings.
     fn keyboard_reachable_ids(params: &MxmDrumMachineParams) -> Vec<String> {
         use mxm_preset::Instrument;
-        let unused: Vec<String> = (crate::params::control::USED + 1..=crate::params::CONTROLS)
-            .map(|k| format!("c{k:02}_"))
+        let unshown: Vec<&str> = (0..SLOT_COUNT)
+            .flat_map(|slot| {
+                let model = params.slots[slot].model_id();
+                (1..=CONTROLS)
+                    .filter(move |&k| !Axis::Control(k as u8).shown(model))
+                    .map(move |k| slot_ids(slot)[at::control(k)])
+            })
             .collect();
-        let hidden = |id: &str| {
-            id.starts_with("route") && id.contains("_target_")
-                || unused.iter().any(|c| id.starts_with(c.as_str()))
-        };
+        let hidden =
+            |id: &str| id.starts_with("route") && id.contains("_target_") || unshown.contains(&id);
         let mut ids: Vec<String> = params
             .parameters()
             .into_iter()
@@ -2727,7 +2757,7 @@ mod tests {
         unsafe { p.routes.route2.amount._internal_set_plain_value(0.7) };
         let host = RecordingHost::default();
         let setter = ParamSetter::new(&host);
-        let tune = Axis::Tune.target();
+        let tune = Axis::TUNE.target();
         add_route(p, tune, SourceChoice::Wheel, &setter);
         assert_eq!(p.routes.route2.source.value(), SourceChoice::Wheel);
         assert_eq!(p.routes.route2.target(), tune);
@@ -2763,7 +2793,7 @@ mod tests {
     fn a_knob_offers_what_it_can_still_take() {
         let params = MxmDrumMachineParams::default();
         let p = &params.slots[0];
-        let (tune, decay) = (Axis::Tune.target(), Axis::Decay.target());
+        let (tune, decay) = (Axis::TUNE.target(), Axis::DECAY.target());
         assert_eq!(offered(p, tune).len(), SourceChoice::ALL.len());
         route(&params, 0, 0, SourceChoice::Lfo1, tune, 0.2);
         assert!(!offered(p, tune).contains(&SourceChoice::Lfo1));
@@ -3150,7 +3180,7 @@ mod tests {
     ///
     /// This editor's structural-state matrix: Init; every route slot in use at full negative depth,
     /// where a reading carries its sign and every digit — the widest text a row can show — and all
-    /// four on one knob; Resample engaged, which disables every axis but Tune and Decay; every LFO
+    /// four on one knob; Resample engaged, which disables every axis but Tune, Decay and Soft hits; every LFO
     /// synced, reading musical divisions; the last slot selected; and every model's cards
     /// (`every_models_cards_pass_the_tree_checks`). Slot activity is forced on.
     #[test]
@@ -3165,7 +3195,7 @@ mod tests {
 
         let stacked = MxmDrumMachineParams::default();
         for (r, source) in SourceChoice::ALL.iter().take(ROUTES).enumerate() {
-            route(&stacked, 0, r, *source, Axis::Tune.target(), -1.0);
+            route(&stacked, 0, r, *source, Axis::TUNE.target(), -1.0);
         }
         check_cards("four routes on Tune", &stacked, 0, &[4]);
 
@@ -3190,10 +3220,11 @@ mod tests {
     }
 
     /// The model half of the matrix, apart so the two halves run side by side. What a model changes
-    /// in a card is its Body card's noise label (*Noise* or *Snappy*) and — for a legacy Off or an
-    /// unavailable id — an entry added to the Model selector and the name on its slot's row. Its
-    /// description is the selector's hover text, which changes no card. So: one model for each
-    /// noise label, and Off and an unavailable id with their slot card.
+    /// in a card is which knobs its shaping cards show and under what names (`controls`), and — for
+    /// a legacy Off or an unavailable id — an entry added to the Model selector and the name on its
+    /// slot's row. Its description is the selector's hover text, which changes no card. So: each
+    /// shaping card once for every different set of knobs and names a model gives it, and Off and
+    /// an unavailable id with their slot card.
     #[test]
     fn every_models_cards_pass_the_tree_checks() {
         use nice_plug::params::InternalParamMut;
@@ -3208,16 +3239,63 @@ mod tests {
             params
         };
         let state = |model: ModelId| format!("{} selected", model_name(model));
-        let mut labels = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
         for spec in AVAILABLE_MODELS.iter() {
-            if labels.insert(noise_amount_label(spec.id)) {
-                check_cards(&state(spec.id), &selected(spec.id), 0, &[5]);
+            for (card, rows) in [(4, EXCITATION), (5, BODY), (6, ENVELOPES_TONE)] {
+                let faces: Vec<(usize, &str)> = rows
+                    .iter()
+                    .flat_map(|row| row.iter())
+                    .filter(|&&k| Axis::Control(k as u8).shown(spec.id))
+                    .map(|&k| (k, Axis::Control(k as u8).name(spec.id)))
+                    .collect();
+                if seen.insert((card, faces)) {
+                    check_cards(&state(spec.id), &selected(spec.id), 0, &[card]);
+                }
             }
         }
-        assert_eq!(labels.len(), 2, "both noise labels are checked");
         for model in [ModelId::OFF, ModelId::new(200)] {
-            check_cards(&state(model), &selected(model), 0, &[0, 3, 5]);
+            check_cards(&state(model), &selected(model), 0, &[0, 3, 4, 5, 6]);
         }
+    }
+
+    /// **A route on a control the model does not show is drawn, never dropped**: its rows stand
+    /// under a line naming the control as unused, they can be removed, and nothing more is
+    /// offered there. A kick has no Noise, and no model uses Control 12.
+    #[test]
+    fn a_route_on_a_control_the_model_does_not_show_is_drawn_and_never_offered() {
+        let params = MxmDrumMachineParams::default();
+        let kick = params.slots[0].model_id();
+        let noise = Axis::Control(general::NOISE as u8);
+        let twelve = Axis::Control(12);
+        assert!(!noise.shown(kick) && !twelve.shown(kick));
+        route(&params, 0, 0, SourceChoice::Lfo1, noise.target(), 0.5);
+        route(&params, 0, 1, SourceChoice::Wheel, twelve.target(), -0.25);
+        let p = &params.slots[0];
+        assert!(offered_on(p, noise, kick).is_empty());
+        assert!(!offered_on(p, Axis::TUNE, kick).is_empty());
+        assert_eq!(noise.stack_label(kick), "Noise (unused)");
+        assert_eq!(twelve.stack_label(kick), "Control 12 (unused)");
+        check_cards("routes on unshown controls", &params, 0, &[5, 6]);
+
+        // Drawn on the cards, with their amounts and removes reachable.
+        let telemetry = Telemetry::default();
+        let recorder = Arc::new(keyboard_checks::Recorder::default());
+        let setter = ParamSetter::new(recorder.as_ref());
+        let mut state = editor_state(&params);
+        let mut panel = drive(&params, &telemetry, &setter, &mut state);
+        let session =
+            keyboard_checks::Session::new(egui::vec2(REFERENCE.0 as f32, REFERENCE.1 as f32));
+        let mut found = std::collections::HashSet::new();
+        for item in &test_items() {
+            mxm_ui::paging::editor::request_card(session.context(), item.key);
+            session.settle(&mut panel);
+            found.extend(session.registered());
+        }
+        let ids = slot_ids(0);
+        for id in [at::amount(0), at::source(0), at::amount(1), at::source(1)] {
+            assert!(found.contains(ids[id]), "{} is not drawn", ids[id]);
+        }
+        assert!(!found.contains(ids[at::control(general::NOISE)]));
     }
 
     /// Every page at the opening size, light and dark, for the owner's review of the layout-tree
