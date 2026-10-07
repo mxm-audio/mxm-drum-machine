@@ -66,7 +66,12 @@ The presets contain only sound parameter values. Output and MIDI-channel assignm
 settings saved by the host, not kit content, so browsing, loading or initialising a kit never rewires
 the DAW or controller. The reusable two-bar **Drum machine family test** beat
 lives in MXM Player's saved sequences and addresses these roles, so switching presets changes the
-machine rather than the rhythm. The larger fifty-kit creative bank remains separate work.
+machine rather than the rhythm.
+
+Fifty creative kits follow the nine, under *Percussion* in the preset browser, on the same keys:
+reference kits of one machine each, kits mixing machines, pitched, metallic, low-cost, electronic
+and experimental kits, choke and shared-source kits, and subtle and extreme versions of two sets.
+Their names are their own; in each, the closed hat cuts the open hat.
 
 There is no internal sequencer, sample import or effects rack. Use a DAW or MXM Player for patterns.
 The interface follows the MXM design system and does not reproduce any source hardware panel.

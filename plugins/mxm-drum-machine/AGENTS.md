@@ -77,7 +77,8 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   are no saved projects - we are in pre alpha", 2026-09-30). Changing Model never changes the host
   parameter inventory; every default is zero, the reference sound.
 - Output is stepped `L+R`, `1`…`16`; MIDI channel `Kit`, `Ch 1`…`Ch 16`; Choke group `Off`, `1`…`16`.
-- **Choke group is a kit setting** (presets, Init and every factory kit carry it, all `Off`).
+- **Choke group is a kit setting** (presets and Init carry it): Init and the audition kits `Off`,
+  the creative kits grouped as a real kit (the owner, 2026-10-07).
   **Output, MIDI channel and `resample` are instance settings**, excluded from preset capture, apply,
   Init, completeness, identity baseline and dirty comparison through
   `mxm-preset::Instrument::is_instance_setting`. `master` is global.
@@ -123,12 +124,16 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   number is `SLOT_MODEL_MIN`.
 - An original interface: no pads, step-key row, hardware layout, product colours or typography.
 
-## Presets ([NOTES.md § Presets](NOTES.md#presets-and-the-audition-kits))
+## Presets ([NOTES.md § Presets](NOTES.md#presets-and-the-audition-kits), [§ creative kits](NOTES.md#the-fifty-creative-kits))
 
 - Nine factory audition kits, one source machine each, named with a numeric source token and no
   manufacturer names (`README.md` maps them), on one fixed role map: 1–5 Kick/Snare/low/mid/high
   drum; 6–8 pitched percussion; 9 Rim; 10 Clap; 11/12 closed/open hat; 13 Cymbal; 14 Cowbell; 15
   Clave; 16 auxiliary. A missing role is muted, never filled. All 94 models appear exactly once.
+- **Fifty creative kits follow** (`src/preset/creative.rs`, *Percussion*), on the same map, named in
+  original words without machine numbers. A key moves only what its model shows, never a *Gain*;
+  every closed hat chokes its open hat (the owner, 2026-10-07). The design is the table; an ignored
+  generator writes the files, and the default suite compares them in memory and renders the bank.
 - Kits never carry Output or MIDI channel. Routes are sparse: a route not in use stores nothing, an
   in-use one its source and target, and its amount when nonzero; an omission loads as the default.
   Kits carry Controls 12–20, at zero.

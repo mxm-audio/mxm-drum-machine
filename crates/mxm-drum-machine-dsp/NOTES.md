@@ -305,7 +305,9 @@ independent of host event order, and preserves retrigger semantics: a second hit
 adds to its ring rather than resetting it first.
 
 **Nothing chokes unless the user assigns it** (owner, 2026-09-20). The source machines' hardwired
-closed/open hat pairs are gone, and the factory kits ship with every slot at Off. A hardware pair
+closed/open hat pairs are gone. Init and the nine audition kits ship with every slot at Off; the
+fifty creative kits group their hats as a real kit would (the owner, 2026-10-07; the plugin's
+NOTES.md, *The fifty creative kits*). A hardware pair
 could only ever couple one machine's own two hats; a group couples any two slots, which is what a
 player wants when the open hat is an 808 and the closed one a 909, or when a short kick should close
 a long one. The circuits therefore own no choke of their own: `PcmMetal::choke` and

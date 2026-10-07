@@ -27,6 +27,7 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
   - [Selection, telemetry and the sound trace](#selection-telemetry-and-the-sound-trace)
   - [Card trees, floors and painted names](#card-trees-floors-and-painted-names)
   - [Presets and the audition kits](#presets-and-the-audition-kits)
+  - [The fifty creative kits](#the-fifty-creative-kits)
 - [Resample is an instance setting, and the capture happens at activation](#resample-is-an-instance-setting-and-the-capture-happens-at-activation)
   - [Resample and Export samples live in the app bar](#resample-and-export-samples-live-in-the-app-bar)
   - [One capture per engage — a parameter edit while frozen renders nothing](#one-capture-per-engage--a-parameter-edit-while-frozen-renders-nothing)
@@ -596,7 +597,9 @@ step:
 **Choke is an assignment, not hardware wiring** (owner, 2026-09-20). Slots sharing a choke group cut
 each other through the DSP's bounded de-click, whatever models they are — an 808 open hat closed by a
 909 closed hat, or a long kick closed by a short one. The machines' hardwired closed/open hat pairs
-are gone, nothing chokes unless the user assigns it, and every factory kit and Init ships at `Off`.
+are gone and nothing chokes unless a slot is assigned. Init and the nine audition kits ship at `Off`;
+the fifty creative kits choke as a real kit would (the owner, 2026-10-07,
+§ [The fifty creative kits](#the-fifty-creative-kits)).
 Unlike Output and MIDI channel, Choke group is a **kit** setting: which slots cut each other is sound
 design, so preset capture, apply and Init all carry it. The two new families are
 instance settings: host/project state stores them, while preset capture/apply, Init, completeness,
@@ -910,8 +913,139 @@ zero-deviation reference hit on its documented common peak plane, then Kick and 
 slots 3–8 and Clap sit at −6 dB; Rim, Cowbell and Clave at −8 dB; both hats and auxiliary percussion
 at −10 dB; and Cymbal/crash at −12 dB. A missing machine role is muted, never filled by moving another role. Its retained fallback model
 belongs to the same family and does not move onto the missing role audibly. The tests prove all 94
-models appear exactly once across the nine authored assignments and every file matches this map. The eventual
-fifty-kit creative bank remains a separate content requirement.
+models appear exactly once across the nine authored assignments and every file matches this map. The fifty
+creative kits follow them (§ [The fifty creative kits](#the-fifty-creative-kits)).
+
+### The fifty creative kits
+
+Plan §7.2 owed **at least fifty creative factory kits**, demonstrating faithful kits of the priority
+and supporting families, mixed-machine kits that expose the model pool, pitched and resonant,
+metallic, low-cost, electronic and experimental ranges, choke and shared-source combinations, and
+subtle against extreme deviation. They were designed on 2026-10-07 for the owner to audition, outside
+the repository, then written in: the design is `src/preset/creative.rs`'s table and the files sit in
+`presets/` beside the nine. Fifty, in the browser's order:
+
+| Category | Kits |
+|---|---|
+| Reference (10) | Bridge Boom, Bridge Tight, Reset Club, Reset Ride, Expanded Studio, Classic Parlour, Discrete Lounge, Early Organ-Top, Compact Battery, Snap Pocket |
+| Mixed machine (8) | Heavy Bottom, Bright Top; Reset Low, Bridge High; Rhythm Box Mixtape; One of Each; Bridged Pair; Lo-Fi Tops, Wooden Floor; Hand Percussion Machines; Snappy Hybrid |
+| Pitched and resonant (5) | Pentatonic Toms, Diode Choir, Syn-Tom Sweeps, Woodshop Marimba, Talking Congas |
+| Metallic (5) | Six-Square Foundry, Cowbell Chord, Rust and Chrome, Clockwork Hats, Noise Cymbal Wash |
+| Low-cost (5) | Four-Voice Economy, Pocket Pair, Thrift Store Drive, Six-Bit Budget, Toy Box |
+| Electronic (6) | Warehouse Pulse, Electro Breaks, Minimal Clicks, Trap Boom, House Shuffle, Big Snare Eighties |
+| Experimental (4) | Rising Sweeps, Overdriven Wreck, LFO Drift, Glacial |
+| Choke and shared source (3) | Hat Ladder, Cross-Cut, Shared Noise Section |
+| Subtle against extreme (4) | Gentle Hybrid and Hybrid Unhinged; Rhythm Box Polish and Rhythm Box Meltdown, each pair one set of sixteen circuits |
+
+Every one of the 94 models sounds in at least one kit (`every_model_sounds_in_some_kit`); the least
+used, in three keys each, are 29, 73 and 91. The two machines of priority fill 274 of the 779
+sounding keys. Each kit's comment in the table says what to listen for, and each key's why.
+
+**The decisions** (the designer's, except where a ruling is dated as the owner's):
+
+- **Choke** (the owner, 2026-10-07): *"The fifty choke as a real kit would (closed against open hat,
+  plus the extra groups in your three choke kits). The nine audition kits keep choke Off."* The
+  groups mean one thing across the bank: 1 the hats, 2 a bass voice (Cross-Cut's kick and the three
+  kick-toms tuned to C2, D2 and F2, a monophonic line), 3 a conga's open and muted strokes, 4 a
+  cymbal and the short hit that stops it (`every_kit_chokes_its_open_hat_with_its_closed_hat`,
+  `the_audition_kits_ship_ungrouped`).
+- **A Reference kit** is one machine's own voice: one family only; a control moves only where the
+  machine had a panel control for it (Tune, Decay, Tone, Snappy, and the reset kick's Attack and the
+  sweep time its panel calls Tune, here Pitch decay) or to re-pitch or re-time one of the family's
+  voices for a role the machine lacked (the pocket box's kick tuned up into toms, the earliest box's
+  one cymbal at three lengths); a role the family cannot play stays muted, as in the audition kits.
+  No Character, Body, Pitch drop or Noise decay. Two kits each for the bridged-T and reset machines
+  (their panels' two ends), one for each supporting machine but the economy box, whose four voices
+  make Four-Voice Economy under Low-cost. At all-zero they would sit on top of the audition kits.
+- **The role map** is the audition kits', so MXM Player's family-test beat plays every kit. A
+  creative kit may put another sound on a role — a shaker on the closed-hat key, a cymbal stop on the
+  clave's — never a kick on the snare's.
+- **Names** are original words with no digits and no maker or model names; the audition kits keep
+  their numeric tokens by the owner's request. The reference kits carry the selector's own family
+  words (Bridge, Reset, Expanded, Classic, Discrete, Early, Compact, Snap)
+  (`the_names_are_original_and_their_own`).
+- **Category**: all fifty `Percussion`, the browser's word for a kit to play; the nine stay
+  `Template`. The categories above are this note's, not browser folders.
+- **Levels and pans**: the audition hierarchy one step livelier (kick and snare 0 dB, toms −6,
+  percussion −7, clap −5, rim −8, hats −10, cymbal −12, cowbell and clave −9, auxiliary −10), moved
+  per kit, and one drummer's-eye stereo picture (hats left, cymbal and auxiliary right, toms high
+  left to low right). They were set on paper: Overdriven Wreck, Hybrid Unhinged, Rhythm Box Meltdown,
+  Glacial and Big Snare Eighties want a level pass by ear.
+- **A key moves only what its model reads** (§ [Each model's controls](#each-models-controls-2026-10-07)),
+  never a control named *Gain* (Level does that), and never one that waits on another left where it
+  waits for nothing: Pitch decay on the ten Pitch-sweep models only beside a Pitch sweep. The check
+  reads the panel's own table and its help's *Only while …* (`every_key_moves_only_what_its_model_reads`).
+- **Rising is Pitch sweep's, not Pitch drop's.** Below its centre, Pitch sweep bends a drum up into
+  its note (Rising Sweeps); below zero, Pitch drop only shrinks a drop the circuit has.
+- **Pitched kits tune by note.** A key names a note and the generator puts the model's measured rest
+  pitch on it (`ModelId::reference_pitch_hz`), so a re-measured rest pitch shows up as kits to
+  regenerate: Pentatonic Toms (F major pentatonic), Diode Choir (G major pentatonic), Woodshop
+  Marimba (C major pentatonic), Cowbell Chord (A minor seventh over all five cowbells and the bell)
+  and Cross-Cut's kick-toms.
+- **Shared source** is made audible in Hat Ladder, whose six metal voices read one six-square bank
+  at zero Tune, and Shared Noise Section, whose noise is brought forward on every reader of two
+  noise buses. A nonzero Tune on a metal voice leaves the bank (the DSP's rule), so those kits keep
+  their metal untuned.
+- **Routes** in six kits: Velocity to Tone on Hand Percussion Machines' drums, Wheel and Velocity to
+  Tune on Talking Congas' (the only Wheel), synced LFOs on Warehouse Pulse's open hat and ride and
+  across LFO Drift, Random on Rising Sweeps' small percussion, a slow free LFO on Glacial's pans.
+  Only those three set the kit-wide LFOs; every other kit leaves them at Init.
+- **Open for the owner, used as they stand**: the studio machine's congas (37–39), the earliest
+  kick (85), the battery box's cymbal (51) and the six-bit ride (27), each on the DSP's open list; a
+  kit leaning on one is a re-listen after it moves. ID 53's open hat follows host tempo.
+
+**Changed from the audition draft** (the scratch design the owner was sent): settings on controls
+that are only a gain were dropped (Body on 22, 30, 32, 73 and 89; Noise on 11, 23 and 93, Shared
+Noise Section's clap and maraca moved forward by Level instead); Rising Sweeps' kick and low conga
+became circuits with a Pitch sweep (74, 75), because the draft's 60 and 69 have a drop of their own
+and would only have dropped less; and two settings were dropped as unheard: Snappy on the studio
+snare (33), whose wires sit far under its body (its key moved −55 dB), and Drive on Six-Square
+Foundry's bank cowbell (about 0.5 dB), now untouched beside the hats it shares the bank with.
+
+**The tests** follow plan §7.2's contract:
+
+- **Files**: the ignored `write_the_creative_kits` writes the fifty; the runs-by-default
+  `the_shipped_kits_are_their_designs` builds each in memory and compares, changing nothing in the
+  checkout; `every_preset_file_is_a_listed_kit` keeps the folder and the compiled list one.
+- **A default retune cannot collapse a kit's sparse overrides**, two ways. A file holds every
+  parameter a kit stores, not only the design's overrides (`a_shipped_kit_never_leans_on_a_default`),
+  so a changed default never reaches a shipped kit and the comparison above fails until the kit is
+  regenerated on purpose; and every key that moves a control sounds apart from itself unset — same
+  model, level and pan, controls at Init — by more than −60 dB of its peak
+  (`every_setting_a_kit_makes_is_heard`). The faintest, measured: −45.7 dB, Trap Boom's clap room,
+  shortened mostly after the window.
+- **The bank render** (`every_kit_sounds_and_no_two_sound_alike`): Init, the nine and the fifty,
+  each from a fresh activation with every key on an output of its own, all sixteen struck at velocity
+  0.8 with the host at 120 BPM (the synced LFOs and the tempo-coupled hat follow it), ten 1,000-frame
+  calls — 0.21 s, so a long-ringing kit is cut there. Every unmuted key sounds above −40 dBFS (the
+  quietest, −17.9 dBFS, is in Rhythm Box Meltdown); every muted key is silent; Init rendered twice is
+  one print. A key's print is four windows of three band energies against the key's own energy and
+  its RMS frequency in dB, so level and pan move nothing; two kits are *alike* below 0.2 dB, the mean
+  of their keys' print distances. Measured: the closest pair is Bridge 808 and Bridge Boom, 0.41 dB
+  (the kick 2.7 dB of print, the cymbal 1.1, the toms 0.6–0.7: the reference kit moves only panel
+  controls), then Reset 909 and Reset Ride, 0.82.
+- **Cost**: every render the checks read (111: the bank, the fifty unset, Init again) is made once,
+  in a `OnceLock`, spread over the machine's threads: **1.5–1.6 s** for the module on this machine
+  (Windows, the fast tier's debug build, 2026-10-07). `print_the_kit_distances` (ignored) prints what
+  the thresholds were chosen from. The render goes through `process()` with `full_layout`'s harness,
+  now taking a host tempo (`render_at`).
+- **The same sound for what was there**: after the change, `same_sound_digests` printed the 21
+  digests recorded in § [The same sound through the move](#the-same-sound-through-the-move-to-general-controls-2026-10-07),
+  line for line, for Init and the nine (Windows, 2026-10-07); it now also prints two lines a creative
+  kit.
+
+**The text the choke ruling replaced** (2026-10-07):
+
+> The brief, §3: *Nothing chokes unless the user assigns it, and every factory kit ships ungrouped.*
+>
+> The DSP crate's `NOTES.md`: *The source machines' hardwired closed/open hat pairs are gone, and the
+> factory kits ship with every slot at Off.*
+>
+> This plugin's `AGENTS.md`: *Choke group is a kit setting (presets, Init and every factory kit
+> carry it, all `Off`).*
+>
+> This file, § Choke groups: *The machines' hardwired closed/open hat pairs are gone, nothing chokes
+> unless the user assigns it, and every factory kit and Init ships at `Off`.*
 
 ## Resample is an instance setting, and the capture happens at activation
 
@@ -1277,7 +1411,10 @@ inventories and slot-numbered port names, output text entry by port name, the ki
 (its derived reading of all, own and mixed settings, and one balanced gesture that writes only the
 outputs that move, from every start, leaving a loaded kit clean), preset exclusion of Output/MIDI channel across
 capture/Init/every factory kit/dirty state, no process allocation, the shared crate's unlike-consumer policy fixture, editor paint/fit and all assigned
-model-selector paths. Every factory kit and Init sparsely omit unused routes while resolving
+model-selector paths. The fifty creative kits match their design, store every kit parameter, move
+only what their models read, choke closed against open hat and use every model; rendered with the
+bank from a fresh engine at 120 BPM, every unmuted key sounds, no two kits sound alike and every
+setting is heard (§ [The fifty creative kits](#the-fifty-creative-kits)). Every factory kit and Init sparsely omit unused routes while resolving
 them back to Off/zero and leaving non-default Output and MIDI-channel instance settings intact. A
 full-layout harness drives the plugin's own `process()` with sixteen mono
 auxiliary buffers: every slot reaches exactly its selected port and nothing else, stereo

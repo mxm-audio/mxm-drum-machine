@@ -124,8 +124,10 @@ owner's own** velocity — never a losing note's.
 **Choke is an assignment, not wiring.** Each slot carries a Choke Group; slots sharing one cut each
 other through a bounded de-click, whatever models they are. The machines' hardwired closed/open hat
 pairs are not modelled either: an open hat can be closed by any other slot, including one from
-another machine or a short version of the same drum. Nothing chokes unless the user assigns it, and
-every factory kit ships ungrouped.
+another machine or a short version of the same drum. Nothing chokes unless a slot is assigned to a
+group. Init and the nine audition kits ship ungrouped; the fifty creative kits choke as a real kit
+would, every closed hat cutting its open hat, and the choke kits add groups of their own (the owner,
+2026-10-07).
 
 ## 4. Play view
 
@@ -304,6 +306,17 @@ has an explicit cross-shaped clear action.
 
 MXM Player's two-bar `Drum machine family test` saved sequence exercises this map. The sequence owns
 notes and tempo only, so switching among these presets keeps the rhythm fixed.
+
+## Creative kits
+
+Fifty creative kits (plan §7.2) follow the nine in the preset browser, filed under *Percussion* and
+on the same role map, so the same beat plays every one of them. They demonstrate the pool: reference
+kits of one machine each, mixed-machine kits, pitched and resonant, metallic, low-cost, electronic
+and experimental kits, choke and shared-source kits, and two pairs of subtle against extreme
+deviation. A creative kit may put another sound on a role (a shaker on the closed-hat key), never a
+kick on the snare's; it moves only controls its models read, and none that is only a gain. Names are
+original words without machine numbers. Every closed hat cuts its open hat (the owner, 2026-10-07).
+The plugin's `NOTES.md` (*The fifty creative kits*) records the bank and each decision behind it.
 
 ## Per-slot parameters
 
