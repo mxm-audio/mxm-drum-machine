@@ -2627,7 +2627,7 @@ dependencies = [
 [[package]]
 name = "mxm-listening"
 version = "0.1.0"
-source = "git+https://github.com/mxm-audio/mxm-tools?branch=main#36cb755b169ec50d8c9dce0cf806e7988f9e29f7"
+source = "git+https://github.com/mxm-audio/mxm-tools?branch=main#736a5e0fc0cecd216c7471dbc0b03b5f33f287bc"
 dependencies = [
  "mxm-audio-file",
  "mxm-audio-file-decode",
