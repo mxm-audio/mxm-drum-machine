@@ -970,7 +970,9 @@ sounding keys. Each kit's comment in the table says what to listen for, and each
   percussion −7, clap −5, rim −8, hats −10, cymbal −12, cowbell and clave −9, auxiliary −10), moved
   per kit, and one drummer's-eye stereo picture (hats left, cymbal and auxiliary right, toms high
   left to low right). They were set on paper: Overdriven Wreck, Hybrid Unhinged, Rhythm Box Meltdown,
-  Glacial and Big Snare Eighties want a level pass by ear.
+  Glacial and Big Snare Eighties want a level pass by ear. *The owner auditioned the bank in MXM
+  Player on 2026-10-07 ("sounds good", "I think it is fine for now"): no level pass until a kit is
+  reported.*
 - **A key moves only what its model reads** (§ [Each model's controls](#each-models-controls-2026-10-07)),
   never a control named *Gain* (Level does that), and never one that waits on another left where it
   waits for nothing: Pitch decay on the ten Pitch-sweep models only beside a Pitch sweep. The check
