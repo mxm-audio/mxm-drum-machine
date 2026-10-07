@@ -16,6 +16,7 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
   - [The metal batch](#the-metal-batch)
 - [Parameter and routing surface](#parameter-and-routing-surface)
   - [The move to general controls and route slots (2026-10-07)](#the-move-to-general-controls-and-route-slots-2026-10-07)
+  - [Each model's controls (2026-10-07)](#each-models-controls-2026-10-07)
   - [Choke groups, instance settings, Mute and Solo](#choke-groups-instance-settings-mute-and-solo)
   - [Model values](#model-values)
   - [Globals and the three LFOs](#globals-and-the-three-lfos)
@@ -35,6 +36,7 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
 - [Verification evidence](#verification-evidence)
   - [clap-validator's parameter fuzz on a debug bundle (2026-10-06)](#clap-validators-parameter-fuzz-on-a-debug-bundle-2026-10-06)
   - [The same sound through the move to general controls (2026-10-07)](#the-same-sound-through-the-move-to-general-controls-2026-10-07)
+  - [The same sound through honest controls (2026-10-07)](#the-same-sound-through-honest-controls-2026-10-07)
   - [The recorded-kit fixture, once the pre-D7 compatibility fixture](#the-recorded-kit-fixture-once-the-pre-d7-compatibility-fixture)
   - [The editor's standard and tree checks](#the-editors-standard-and-tree-checks)
   - [What the tests cover](#what-the-tests-cover)
@@ -73,6 +75,10 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
   source-family audition presets.
 
 ## Implemented drums' deliberate behavior
+
+*Since 2026-10-07 a control a model's code does not read has no knob at all
+(§ [Each model's controls](#each-models-controls-2026-10-07)); "visibly unavailable" and "disabled"
+below describe the panel before, when every model drew all eleven.*
 
 ### Deep bridge kick
 
@@ -217,8 +223,10 @@ because it is velocity sensitivity** — the velocity curve's exponent on every 
 `velocity.rs`), where model-drums' Velocity is "how far a soft stroke moves from a hard one" — and
 Pitch envelope takes Pitch drop's. The machine's own follow in the order they were declared. **No
 model of this machine uses 12–20**: they are exact no-ops, never read or smoothed in `process`, and
-never drawn, as model-drums leaves its kick's 17–20. A control a model does not support stays
-visible and disabled, as before.
+never drawn, as model-drums leaves its kick's 17–20. *Until the same day's second step* a control a
+model does not support stayed visible and disabled, as before; since it, the model shows only what
+its code reads, under its own names (§ [Each model's controls](#each-models-controls-2026-10-07)), and
+the panel names in the table above are the general ones.
 
 **The routes.** Each slot's 13 targets × 7 sources of presence and amount (`route_<target>_<source>_{on,amount}_N`,
 182 a slot) became four route slots, each a source, a target and an amount:
@@ -259,6 +267,329 @@ deviation, as model-drums' (§ *Routes and velocity*); the host test
 IDs (§ *The recorded-kit fixture*). The DSP's own `conformance` runs unchanged.
 
 **What proved the same sound** is in § [Verification evidence](#the-same-sound-through-the-move-to-general-controls-2026-10-07).
+
+### Each model's controls (2026-10-07)
+
+**The owner's rulings.** 2026-09-30 (the archive's `todo.txt`): *"Map its named axes onto the seven
+common controls (Tune, Decay, Tone, Attack, Velocity, Pitch drop, Pitch decay), checking each model
+has an honest meaning for each."* 2026-10-07: *"do 1: drum machine"* — honest controls: a model shows
+only the controls that do something for it, under its honest name. And, the same day, on the method:
+*"Why do you need to measure if a parameter does anything? Can't you read the code anymore? One
+parameter might not do anything depending on the setting of another parameter."*
+
+**The method: read from the code.** A model shows a control when its circuit reads it at all, in any
+setting of the other controls; a control it never reads, or reads only to discard, has no knob. Each
+family's path from `SlotPatch` into its voice was read control by control (`deep_bridge_kick.rs`,
+`twin_mode_snare.rs`, `falling_drum.rs`, `rim_clave.rs`, `noise_percussion.rs`, `metal_808.rs`,
+`reset_vco_909.rs`, `analogue_909.rs`, `pcm_909.rs`, `economy_55.rs`, `legacy.rs`, and `engine.rs`
+and `velocity.rs` around them). It agrees with the DSP's `ModelId::capabilities` everywhere: every
+declared control is read, and every undeclared one is missing from the family's patch or read into
+a discarded binding. So the table is held to it
+(`each_model_shows_exactly_the_controls_its_code_reads`), and the DSP's own
+`every_declared_unsupported_axis_is_an_exact_dsp_no_op` holds the other half. A control that acts only
+while another is set is **shown**, and its help says what it waits on — *Only while Snappy is above
+its bottom* — so the owner listens with that one up. *A render of every model with each control at
+its ends was run first and dropped on the owner's ruling; it agreed with the code (Pitch decay on the
+ten unswept models changes the hit only beside Pitch sweep), and it decided nothing.*
+
+**The names.** Model-drums' seven keep their places — 1 Tune, 2 Decay, 3 Tone, 4 Attack, 5 the
+velocity response, 6 the pitch drop, 7 its time — and the panel keeps a general name wherever it is
+honest. It names what a control does where the general name would send the player to the wrong part
+of the sound or the wrong way:
+
+- **Soft hits** for Dynamics, on every model. Its top flattens the velocity curve (`velocity.rs`:
+  soft hits come up), so "more Dynamics" made the drum *less* dynamic, and model-drums' *Velocity*,
+  whose top widens the difference, would read backwards too.
+- **Pitch drop** for Pitch envelope where the drum's pitch falls (its bottom: no drop), model-drums'
+  common name; **Pitch sweep** where there is no drop of its own and the centre is none, so the top
+  falls and the bottom *rises* (28, 67, 68, 74–77, 86–88). Pitch decay keeps its name; on those ten
+  it acts only while Pitch sweep is off its centre.
+- **Gain** for a control that only changes the level: Attack on every supporting machine (`legacy.rs`
+  multiplies the whole output by `1 + 0.25·attack`) and on 10, 22, 29–31; Body on 10, 19–22, 30, 32,
+  47, 73, 89; Noise where the voice is all noise or the control scales everything (11, 12, 23, 31,
+  44, 59, 65, 82–84, 93, 94).
+- **Snappy decay** beside Snappy on every snare, as Snappy already stood for Noise there.
+- One model's own: **Bend** (1's Body, the pitch bend after the click, not body weight), **Weight**
+  (17's Tone, the body against the click, not a filter), **Punch** (17's Body, a deeper drop and a
+  little level), **Click length** (17's Noise decay, the click's length, not a noise envelope),
+  **Snappy length** (18's Attack, which stretches the snares), **Clap length** (12's Attack), **Clap
+  decay** (the claps' Noise decay, each clap's length), **Spread** (23's Attack, the gap between
+  claps), **Sizzle** (14's Attack, the top layer's level), **Soft start** (24–27's Attack, whose top
+  softens the start), **Drive** (28's Body; Character where it drives), **Clean** (9 and 10's
+  Character, whose top is *less* drive), **Ring** and **Air** (the claps' Character, opposite ways),
+  **Crunch** (24–27's Character: drive up, fewer levels down) and **Speed** (72's Tune, a scrape
+  rate).
+
+**How many each model shows**: all eleven on 3 (19–21), ten on 6, nine on 3, eight on 32, seven on
+16, six on 30 and five on 4. Hidden: Noise decay on 72 models, Noise on 58, Pitch drop and Pitch
+decay on 58, Character on 48, Body on 36 and Tune on 16; Decay, Tone, the fourth control and Soft
+hits on none.
+
+**The panel.** Only a model's controls are drawn, each under its name, with its help on hover; a
+hidden one keeps its stored value and, being unread, its silence. A legacy Off or an unavailable id
+keeps the eleven general controls, disabled, so its cards stay what they are. **A route already aimed
+at a control the model does not show** — left by a change of model, or set by the host on Controls
+12–20 — is drawn on the card that would hold the knob (12–20 on *Envelopes & tone*) under
+"<name> (unused)", with its amount and its remove; nothing more is offered there, as model-drums
+shows an unavailable current id but never offers it. Route rows read their knob's name. While
+Resample freezes a slot, Tune, Decay and **Soft hits** stay live (the frozen hit is played at the
+velocity curve, `velocity::curve`); Soft hits drew disabled there until this change.
+
+**For the owner's ear — the ones I was unsure of:**
+
+- *Soft hits* itself: a new name for the velocity curve, chosen for its direction.
+- **Two knobs, one job.** Two *Gain*s on 10, 22, 30, 31, 32, 47, 73, 89, 44, 59, 65, 82–84, 93 and
+  94; Clap length and Clap decay on 12 (one burst time, multiplied); Snappy length and Snappy decay
+  on 18; Noise decay and Decay on 94 (one envelope, less its second fade); on the rim (9) Attack and
+  Clean feed the same clipper. Named honestly rather than told apart; whether to keep them is the
+  owner's.
+- **Read, but faint**: 34–36's Noise and Noise decay (a hum fitted 45–70 dB under the drum); 37–39's
+  Pitch drop (under a semitone) and Pitch decay; 13's Drive (about 0.5 dB); 19's Attack (its knock
+  level is zero, so only a faint hiss lengthens); 1's Drive below the centre and 10's Clean above it
+  (≤ 0.3 dB); Drive's lower half on the supporting machines, which only turns them down (−5 dB);
+  the snares of 33, which are quiet; and Body on the resonators whose click is tiny (36–39, 45, 50,
+  66–68, 74–77, 79, 80, 85–88, 90), nearly a level. Shown because the code reads them.
+- **Pitch drop on the mid and high falling congas (6, 8)**: the pitch jump lasts under 2 ms even at
+  the top of Pitch decay, so it is heard as a snap at the strike, not a drop.
+- 18's Tone is not monotonic (its upper note flips polarity below about −0.67); 73's Tone is mostly
+  a level (its partials sit far above the corner); 2 and 18's Tone balance two notes rather than
+  filter, as the 808 snare's own Tone does, so the name stays.
+- **Found on the way, not changed (the DSP's)**: a frozen slot follows Tune as a playback rate on
+  every model, the sixteen with no Tune included (11, 12, 23, 31, 44, 59, 63–65, 71, 82–84, 92–94),
+  so a Tune stored there moves a frozen hit with no knob to see it; a route on a control read only at
+  the strike (Attack, Soft hits, Noise on models 1–10) does nothing, because routes reach the patch
+  per sample after the trigger has read it; the maraca's and claps' Noise (now Gain) meets the
+  output's hard limit inside the normal range.
+
+**Each model's names** (`print_the_control_table`, an ignored test that prints both tables from
+`editor::controls`; — is not drawn):
+
+| Model | 1 Tune | 2 Decay | 3 Tone | 4 Attack | 5 Soft hits | 6 Pitch drop | 7 Pitch decay | 8 Body | 9 Noise | 10 Noise decay | 11 Character |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 Deep bridge kick | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Bend | — | — | Drive |
+| 2 Twin-mode snare | Tune | Decay | Tone | Attack | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 3 Low falling tom | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Body | Noise | Noise decay | — |
+| 4 Low falling conga | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 5 Mid falling tom | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 6 Mid falling conga | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 7 High falling tom | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 8 High falling conga | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 9 Layered short rim | Tune | Decay | Tone | Attack | Soft hits | — | — | Body | — | — | Clean |
+| 10 Pure high clave | Tune | Decay | Tone | Gain | Soft hits | — | — | Gain | — | — | Clean |
+| 11 Bright short maraca | — | Decay | Tone | Attack | Soft hits | — | — | — | Gain | — | — |
+| 12 Triple pulse clap | — | Decay | Tone | Clap length | Soft hits | — | — | — | Gain | Clap decay | Ring |
+| 13 Twin-square cowbell | Tune | Decay | Tone | Attack | Soft hits | — | — | — | — | — | Drive |
+| 14 Three-path cymbal | Tune | Decay | Tone | Sizzle | Soft hits | — | — | — | — | — | Drive |
+| 15 Six-square closed hat | Tune | Decay | Tone | Attack | Soft hits | — | — | — | — | — | Drive |
+| 16 Six-square open hat | Tune | Decay | Tone | Attack | Soft hits | — | — | — | — | — | Drive |
+| 17 Reset punch kick | Tune | Decay | Weight | Attack | Soft hits | Pitch drop | Pitch decay | Punch | Noise | Click length | — |
+| 18 Reset twin snare | Tune | Decay | Tone | Snappy length | Soft hits | Pitch drop | Pitch decay | Body | Snappy | Snappy decay | — |
+| 19 Low reset triad tom | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Gain | Noise | Noise decay | Drive |
+| 20 Mid reset triad tom | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Gain | Noise | Noise decay | Drive |
+| 21 High reset triad tom | Tune | Decay | Tone | Attack | Soft hits | Pitch drop | Pitch decay | Gain | Noise | Noise decay | Drive |
+| 22 Triple-resonator rim | Tune | Decay | Tone | Gain | Soft hits | — | — | Gain | — | — | Drive |
+| 23 Four-cell clap | — | Decay | Tone | Spread | Soft hits | — | — | — | Gain | Clap decay | Air |
+| 24 Six-bit closed hat | Tune | Decay | Tone | Soft start | Soft hits | — | — | — | — | — | Crunch |
+| 25 Six-bit open hat | Tune | Decay | Tone | Soft start | Soft hits | — | — | — | — | — | Crunch |
+| 26 Six-bit crash | Tune | Decay | Tone | Soft start | Soft hits | — | — | — | — | — | Crunch |
+| 27 Six-bit ride | Tune | Decay | Tone | Soft start | Soft hits | — | — | — | — | — | Crunch |
+| 28 Economy 62 kick | Tune | Decay | Tone | Attack | Soft hits | Pitch sweep | Pitch decay | Drive | — | — | — |
+| 29 Economy body snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 30 Economy short rim | Tune | Decay | Tone | Gain | Soft hits | — | — | Gain | — | — | — |
+| 31 Inductor noise hat | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | — | Drive |
+| 32 Dual-low kick | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Gain | — | — | Drive |
+| 33 Dual-bridge snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 34 Diode low tom | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | Noise | Noise decay | — |
+| 35 Diode mid tom | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | Noise | Noise decay | — |
+| 36 Diode high tom | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | Noise | Noise decay | — |
+| 37 Diode low conga | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 38 Diode mid conga | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 39 Diode high conga | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 40 Thirty-millisecond rim | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | Drive |
+| 41 Six-square cymbal | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 42 Six-square short hat | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 43 Six-square long hat | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 44 Saw-noise clap | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | Clap decay | Drive |
+| 45 Phase-shift clave | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | Drive |
+| 46 Split-square cowbell | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 47 Compact dual kick | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Gain | — | — | — |
+| 48 Compact body snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 49 Compact low tom | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 50 Compact high tom | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 51 Two-band cymbal | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 52 Resonant closed hat | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 53 Tempo-coupled open hat | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 54 Damped whack kick | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | Drive |
+| 55 LFSR snap snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 56 Mixed-source cymbal | Tune | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 57 Mixed-source closed hat | Tune | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 58 Mixed-source open hat | Tune | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 59 Timed-burst clap | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | Clap decay | Drive |
+| 60 Classic 62 kick | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 61 Classic 340 snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 62 Five-millisecond rim | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | — |
+| 63 Sixty-millisecond noise hat | — | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 64 Long noise cymbal | — | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 65 Twenty-millisecond maraca | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | — | — |
+| 66 High 2630 clave | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | — |
+| 67 High 600 bongo | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 68 Low 400 bongo | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 69 Low 208 conga | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 70 Close-interval cowbell | Tune | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 71 Tambourine wash | — | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 72 Two-rate guiro | Speed | Decay | Tone | Gain | Soft hits | — | — | — | — | — | Drive |
+| 73 Triple high bell | Tune | Decay | Tone | Gain | Soft hits | — | — | Gain | — | — | Drive |
+| 74 Discrete 62 kick | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 75 Discrete 208 conga | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 76 Discrete low bongo | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 77 Discrete high bongo | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 78 Resonant 830 cowbell | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | Drive |
+| 79 Discrete short rim | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | — |
+| 80 Resonant 2350 clave | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | — |
+| 81 Bongo-body snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 82 Forty-millisecond noise hat | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | — | Drive |
+| 83 Forty-millisecond maraca | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | — | — |
+| 84 Four-hundred-millisecond cymbal | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | — | Drive |
+| 85 Early transistor kick | Tune | Decay | Tone | Gain | Soft hits | Pitch drop | Pitch decay | Body | — | — | — |
+| 86 Early low conga | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 87 Early high conga | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 88 Early high bongo | Tune | Decay | Tone | Gain | Soft hits | Pitch sweep | Pitch decay | Body | — | — | — |
+| 89 Early cowbell | Tune | Decay | Tone | Gain | Soft hits | — | — | Gain | — | — | Drive |
+| 90 Early clave | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | — | — | — |
+| 91 Early snare | Tune | Decay | Tone | Gain | Soft hits | — | — | Body | Snappy | Snappy decay | — |
+| 92 Early cymbal | — | Decay | Tone | Gain | Soft hits | — | — | — | Noise | — | Drive |
+| 93 Early maraca | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | — | — |
+| 94 Early wire brush | — | Decay | Tone | Gain | Soft hits | — | — | — | Gain | Noise decay | Drive |
+
+**What each does** (the hover help; what a control waits on is in it):
+
+| Control | Name | What it does | Models |
+|---|---|---|---|
+| 1 | Tune | Tunes the boom; its swoop follows. | 1 |
+| 1 | Tune | Tunes the drum; the snares keep their pitch. | 2, 18, 29, 33, 48, 55, 61, 81, 91 |
+| 1 | Tune | Tunes the drum up or down. | 3, 4, 5, 6, 7, 8, 9, 19, 20, 21, 22, 28, 30, 32, 34, 35, 36, 37, 38, 39, 40, 45, 47, 49, 50, 54, 60, 62, 66, 67, 68, 69, 73, 74, 75, 76, 77, 78, 79, 80, 85, 86, 87, 88, 89, 90 |
+| 1 | Tune | Tunes the clave; very high, it also gets quieter. | 10 |
+| 1 | Tune | Tunes the cowbell. | 13, 46, 70 |
+| 1 | Tune | Moves the metallic ring up or down; it has no single note. | 14, 15, 16, 41, 42, 43, 51, 52, 53, 56, 57, 58 |
+| 1 | Tune | Tunes the kick; its pitch drop follows. | 17 |
+| 1 | Tune | Tunes it up or down; higher is also shorter. | 24, 25, 26, 27 |
+| 1 | Speed | How fast it is scraped; very fast, it turns into a hiss. | 72 |
+| 2 | Decay | How long the boom rings. | 1 |
+| 2 | Decay | How long the drum rings; the snares keep their length. | 2, 18, 29, 33, 48, 55, 61, 81, 91 |
+| 2 | Decay | How long it rings. | 3, 4, 5, 6, 7, 8, 14, 22, 30, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 45, 46, 47, 49, 50, 51, 52, 54, 56, 57, 58, 60, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 78, 79, 80, 82, 83, 84, 85, 86, 87, 88, 89, 90, 92, 93, 94 |
+| 2 | Decay | How long it rings before it is cut off. | 9, 10 |
+| 2 | Decay | How long the shake lasts. | 11 |
+| 2 | Decay | How long the room tail after the claps lasts. | 12, 23, 44, 59 |
+| 2 | Decay | How long it rings after the first clank. | 13 |
+| 2 | Decay | How long it rings: how open it sounds. | 15, 16 |
+| 2 | Decay | How long the kick lasts. | 17 |
+| 2 | Decay | How long its main tone rings. | 19, 20, 21 |
+| 2 | Decay | Fades it out sooner, or holds its tail up to its natural end. | 24, 25, 26, 27 |
+| 2 | Decay | How long the kick lasts; it stretches the pitch sweep too. | 28 |
+| 2 | Decay | How long the hat lasts. | 31 |
+| 2 | Decay | How long it rings; it also follows the song's tempo. | 53 |
+| 2 | Decay | How long the scrape lasts, and when it speeds up. | 72 |
+| 3 | Tone | Darkens or brightens the click; the boom itself barely changes. | 1 |
+| 3 | Tone | Shifts the drum between its low note and its higher ring. | 2 |
+| 3 | Tone | Darkens or brightens the click at the start. | 3, 4, 5, 6, 7, 8 |
+| 3 | Tone | Darkens or brightens the sound. | 9, 11, 15, 16, 19, 20, 21, 22, 24, 25, 26, 27, 28, 72, 89 |
+| 3 | Tone | Softens or sharpens the click of its start and end. | 10 |
+| 3 | Tone | Darkens or brightens the claps and the room. | 12, 44, 59 |
+| 3 | Tone | Darker and lower, or brighter and higher. | 13 |
+| 3 | Tone | A darker wash, or a brighter sizzle. | 14 |
+| 3 | Weight | How heavy the body is against the click; more also adds a little saturation. | 17 |
+| 3 | Tone | Shifts the drum between its lower and its upper note. | 18 |
+| 3 | Tone | Moves the claps' colour down or up. | 23 |
+| 3 | Tone | Brightens or darkens the snares only. | 29 |
+| 3 | Tone | Darkens or brightens it; very dark, it also gets quieter. | 30 |
+| 3 | Tone | Moves the hat's ringing colour down or up. | 31 |
+| 3 | Tone | Darkens or brightens the overtones; the low note barely changes. | 32, 47 |
+| 3 | Tone | Brightens or darkens the snares and the click; the drum's own note is untouched. | 33, 48, 55, 61, 81, 91 |
+| 3 | Tone | Darkens or brightens the click and the overtones. | 34, 35, 36, 37, 38, 39, 40, 45, 49, 50, 54, 60, 62, 66, 67, 68, 69, 74, 75, 76, 77, 78, 79, 80, 85, 86, 87, 88, 90 |
+| 3 | Tone | Moves the metallic colour darker or brighter. | 41, 42, 43, 51, 52, 53, 56, 57, 58 |
+| 3 | Tone | Moves the cowbell's colour; it can change which of its two notes leads. | 46, 70 |
+| 3 | Tone | Moves the hiss darker or brighter. | 63, 64, 65, 71, 82, 83, 84, 92, 93, 94 |
+| 3 | Tone | Darkens or brightens it; on this bell, mostly louder or softer. | 73 |
+| 4 | Attack | How loud the beater click is at the start. | 1 |
+| 4 | Attack | How hard the drum is struck: a louder ring and a firmer thump. | 2 |
+| 4 | Attack | How hard it is struck: louder, with a harder click and a bigger pitch snap. | 3, 4, 5, 6, 7, 8 |
+| 4 | Attack | How hard the rim is struck: more or less crack. | 9 |
+| 4 | Gain | Only makes it louder or softer, as Level does. | 10, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94 |
+| 4 | Attack | How quickly it gets loud. | 11 |
+| 4 | Clap length | How long each clap lasts, tighter or looser, as Clap decay does over a smaller range. | 12 |
+| 4 | Attack | How long the bright clank at the start lasts. | 13 |
+| 4 | Sizzle | How much bright sizzle is on the hit. | 14 |
+| 4 | Attack | How sharp the click at the start is. | 15, 16 |
+| 4 | Attack | How loud the click at the start is. | 17 |
+| 4 | Snappy length | How long the snares rattle, as Snappy decay does over a smaller range. Only while Snappy is above its bottom. | 18 |
+| 4 | Attack | On this tom, only how long the faint hiss at the start lasts. | 19 |
+| 4 | Attack | How hard the knock at the start is, and how long its hiss lasts. | 20, 21 |
+| 4 | Spread | How far apart the claps are. | 23 |
+| 4 | Soft start | Softens the start above the centre; hardens it below. | 24, 25, 26, 27 |
+| 4 | Attack | How hard the thump at the start is. | 28 |
+| 5 | Soft hits | Brings soft hits up towards full ones, or down, away from them. A full hit stays as it is. | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94 |
+| 6 | Pitch drop | How far the boom swoops down at the start; at the bottom it is a steady note. | 1 |
+| 6 | Pitch drop | How far the pitch falls when the drum is struck; at the bottom it stays put. | 3, 4, 5, 6, 7, 8, 17, 18, 19, 20, 21, 32, 34, 35, 36, 37, 38, 39, 47, 49, 50, 54, 60, 69, 85 |
+| 6 | Pitch sweep | Bends the pitch down after the strike, or up below the centre; at the centre it stays put. Harder hits bend further. | 28, 67, 68, 74, 75, 76, 77, 86, 87, 88 |
+| 7 | Pitch decay | How long the swoop takes. | 1 |
+| 7 | Pitch decay | How quickly the falling pitch settles. Only while Pitch drop is above its bottom. | 3, 4, 5, 6, 7, 8, 17, 18, 19, 20, 21, 32, 34, 35, 36, 37, 38, 39, 47, 49, 50, 54, 60, 69, 85 |
+| 7 | Pitch decay | How quickly the pitch sweep settles; Decay stretches it too. Only while Pitch sweep is off its centre. | 28, 67, 68, 74, 75, 76, 77, 86, 87, 88 |
+| 8 | Bend | How far the pitch bends down after the click, and how much the boom growls. Only while Pitch drop is above its bottom. | 1 |
+| 8 | Body | How loud the drum is against the snares. | 2, 18, 29, 33, 48, 55, 61, 81, 91 |
+| 8 | Body | A little more or less ring, and a bigger or smaller pitch snap at the strike. | 3, 4, 5, 6, 7, 8 |
+| 8 | Body | How much of the low knock is in the hit. | 9 |
+| 8 | Gain | Only makes it louder or softer, as Level does. | 10, 19, 20, 21, 22, 30, 32, 47, 73, 89 |
+| 8 | Punch | A deeper pitch drop and a slightly louder body. | 17 |
+| 8 | Drive | Drives the ring harder, flattening it. | 28 |
+| 8 | Body | How loud the ring is against the click at the start. | 34, 35, 36, 37, 38, 39, 40, 45, 49, 50, 54, 60, 62, 66, 67, 68, 69, 74, 75, 76, 77, 78, 79, 80, 85, 86, 87, 88, 90 |
+| 9 | Snappy | How loud the snares are against the drum. | 2, 18 |
+| 9 | Noise | How loud the hiss under the tom is. | 3 |
+| 9 | Gain | Only makes it louder or softer, as Level does. | 11, 12, 23, 31, 44, 59, 65, 82, 83, 84, 93, 94 |
+| 9 | Noise | How much noise is in the click. Only while Attack is above its bottom. | 17 |
+| 9 | Noise | How loud the hiss is. | 19, 20, 21 |
+| 9 | Snappy | How loud the snares are against the drum; they never go away entirely. | 29, 33, 48, 55, 61, 81, 91 |
+| 9 | Noise | How loud the faint noisy hum inside the drum is. | 34, 35, 36 |
+| 9 | Noise | How much hiss is mixed into the metal. | 56, 57, 58 |
+| 9 | Noise | How loud the hiss is against the rest of the sound. | 63, 64, 71, 92 |
+| 10 | Snappy decay | How long the snares rattle. Only while Snappy is above its bottom. | 2, 18 |
+| 10 | Noise decay | How long the hiss lasts. Only while Noise is above its bottom. | 3, 19, 20, 21 |
+| 10 | Clap decay | How long each clap lasts, from a tight snap to one long smear. | 12, 23 |
+| 10 | Click length | Turns the click from a sharp tick into a soft thump. Only while Attack is above its bottom. | 17 |
+| 10 | Snappy decay | How long the snares rattle. | 29, 33, 48, 55, 61, 81, 91 |
+| 10 | Noise decay | How long that hum lasts. | 34, 35, 36 |
+| 10 | Clap decay | How long the last clap lasts. | 44, 59 |
+| 10 | Noise decay | Shortens or lengthens the brush, as Decay does, but leaves its long second fade alone. | 94 |
+| 11 | Drive | Rounds off and fattens the boom above the centre; below it, it stays clean. | 1 |
+| 11 | Clean | Cleaner and more ringing above the centre; harsher and buzzier below. | 9 |
+| 11 | Clean | Fuzzier and squashed below the centre; above it, it stays clean. | 10 |
+| 11 | Ring | Narrower and more pitched room above the centre; airier and hissier below. | 12 |
+| 11 | Drive | Adds a little grit above the centre. | 13 |
+| 11 | Drive | Grittier and fuller above the centre, cleaner below. | 14, 15, 16 |
+| 11 | Drive | Buzzier and squarer above the centre, rounder below. | 19, 20, 21 |
+| 11 | Drive | Harsher above the centre, cleaner below. | 22 |
+| 11 | Air | Airier and softer above the centre; more ringing and pitched below. | 23 |
+| 11 | Crunch | Saturates it above the centre; grainier and more lo-fi below. | 24, 25, 26, 27 |
+| 11 | Drive | Louder and saturated above the centre; quieter and clean below. | 31 |
+| 11 | Drive | Dirtier and fatter above the centre; below it, only quieter. | 32, 40, 41, 42, 43, 44, 45, 46, 51, 52, 53, 54, 56, 57, 58, 59, 63, 64, 70, 71, 72, 73, 78, 82, 84, 89, 92, 94 |
+
+**The contract text it replaced** — this plugin's `AGENTS.md`, as it read until 2026-10-07's second
+step:
+
+> - **The controls are the named ones of before, mechanically** (the owner, 2026-10-07): `params::control`
+>   holds which is which — model-drums' common seven first (Tune, Decay, Tone, Attack, then
+>   Dynamics in Velocity's place, Pitch envelope in Pitch drop's, Pitch decay), then Body, Noise,
+>   Noise decay, Character. Each keeps its range, default, unit, smoothing and path into the DSP;
+>   every kit sounds bit-identical ([NOTES.md § the move](NOTES.md#the-move-to-general-controls-and-route-slots-2026-10-07)).
+>   Controls 12–20 mean nothing on any model: never read, never drawn. Per-model redesign is later.
+>
+> - **The panel names a control as before, the host by its number** (`Axis::name`): Tune, Decay, …;
+>   snare Noise reads Snappy. Route rows read the DSP's target names (Tune's *Tune*, Level's
+>   *Amplitude*). Unsupported controls stay visible and disabled. **No engineering prose in editor
+>   copy**; the model's description is the selector's hover text, in the sound's words.
+>
+> - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
+>   sound. To change a frozen kit: off, edit, on. Tune and Decay (Controls 1 and 2) stay live as
+>   playback controls.
 
 ### Choke groups, instance settings, Mute and Solo
 
@@ -493,15 +824,19 @@ typography.
 
 ### Labels and help text
 
-**The host names a control by its number, `Control k`; the panel by the name it had** (`Axis::name`,
-since 2026-10-07): Control 1 reads Tune, as Pitch did before it; snare Noise is labelled Snappy; the
-others read Decay, Tone, Attack, Dynamics, Pitch envelope, Pitch decay, Body, Noise decay and
-Character. The knob's accessible and tooltip name is the host's (`Bound::panel`). *Until 2026-10-07*
-the host names were the axes' own — Pitch, Decay, … — and only Pitch was relabelled on the card.
+**The host names a control by its number, `Control k`; the panel by the model's name for it**
+(`editor::controls`, since 2026-10-07's second step; § [Each model's controls](#each-models-controls-2026-10-07)):
+a model shows only the controls its code reads, each under its own name and with its own hover
+help, and its route rows read that name. The knob's accessible name is the host's (`Bound::panel`).
+*Earlier the same day* every model read the names of before — Tune, Decay, Tone, Attack, Dynamics,
+Pitch envelope, Pitch decay, Body, Noise (Snappy on a snare), Noise decay, Character — with one
+hover help each for every model; *until 2026-10-07* the host names were the axes' own — Pitch,
+Decay, … — and only Pitch was relabelled on the card.
 Pitch envelope and Pitch decay separate excursion depth from time, and Noise decay is
 available only for distinct wire/noise envelopes. Decay's positive half reaches bounded extended
-ranges while zero remains source/reference. Unsupported controls remain visible and disabled; do not
-explain their implementation contract in the editor. All visible help and tooltips use musician-facing
+ranges while zero remains source/reference. *Until 2026-10-07* unsupported controls remained visible
+and disabled; now they are not drawn (a route left on one is, as "(unused)"). Do not explain their
+implementation contract in the editor. All visible help and tooltips use musician-facing
 language. Parameter identity, exact-no-op guarantees, evidence status and other engineering prose stay
 in this document and the brief, never in editor copy.
 
@@ -537,9 +872,10 @@ a card minimum (A2). What the editor states for what it draws itself: a slot row
 tall and at its narrowest its frame's margins, the number's `SLOT_NUMBER_WIDTH`, the model button at
 `SLOT_MODEL_MIN`, Mute and Solo and the row's spacing (`slot_row_min_width`). **Painted names:** the
 LFO knobs read *Rate 1*–*3* (the card says *LFOs*), and the Tune knob's routes read *Tune*, as its
-knob does, where the others read the DSP's target names — Level's *Amplitude* — (`Axis::routed_name`,
-`panel_name` until 2026-10-07); the controls' names are sentence case (*Pitch envelope*, *Pitch
-decay*, *Noise decay*); the mechanism display is `MECHANISM_HEIGHT` tall and fills
+knob does — and since 2026-10-07's second step every route row reads its knob's name: Level, not
+the standard's *Amplitude*; a snare's *Snappy*, not *Noise* (`Axis::name`). *Before*, the others
+read the DSP's target names — Level's *Amplitude* — (`Axis::routed_name`, `panel_name` until
+2026-10-07). The controls' names are sentence case (*Pitch drop*, *Pitch decay*, *Snappy decay*); the mechanism display is `MECHANISM_HEIGHT` tall and fills
 the Model card; every knob stands in the collection's knob row or column
 (`mxm_ui::control::knob_column`), the LFO rate's widest reading the longest of its hertz reading and
 every musical division.
@@ -876,6 +1212,14 @@ The owner's rule for the move was *same sound, bit-identical on Windows*. Three 
 - **Through MXM Player**: the host test's recorded render, loaded through the ID mapping
   (§ *The recorded-kit fixture*), matches bit for bit.
 
+### The same sound through honest controls (2026-10-07)
+
+Showing each model only its controls (§ [Each model's controls](#each-models-controls-2026-10-07))
+changes the editor alone: no DSP, parameter or preset file moved. Proved once, on Windows, after the
+change: `same_sound_digests` printed the 21 digests recorded above, line for line, and the host
+test's recorded kit (`the_recorded_kit_on_the_general_controls_renders_its_recording_bit_exact`)
+matched its render bit for bit through a fresh release bundle.
+
 ### The recorded-kit fixture, once the pre-D7 compatibility fixture
 
 `host-tests/tests/fixtures/mxm-drum-machine-pre-d7/` is project-generated D7 compatibility evidence:
@@ -911,7 +1255,8 @@ run `mxm_plugin_test::tree_checks`'s per-card checks — floor holds, content fl
 height drawn, nothing outside its leaf — over this editor's structural states: Init, every slot's
 four routes in use at full negative depth on Tune, Body, Decay and Level (every route revealed, until
 2026-10-07), all four on Tune, Resample on, every LFO synced, the last slot selected, one model
-per noise label, a legacy Off and an unavailable id — the slot cards
+per distinct set of a shaping card's knobs and names (one per noise label until 2026-10-07's
+second step), routes left on controls the model does not show, a legacy Off and an unavailable id — the slot cards
 at their content floor, so a slot row's stated width is held to what it paints. Tests take
 floors from `test_items`/`items_in`, which run `page_items` in a scratch editor context. Review
 pictures of every page, light and dark:
@@ -923,7 +1268,8 @@ pictures of every page, light and dark:
 Checks cover identity, the 651 parameter IDs/defaults and their positions, each general control's
 range and reading, every grid pair's one route spelling, route slots filling the grid (alone, added,
 Off, unused), the route amount's travel against every pair's offer, route adding/removing/offering
-in the editor, presets pairing every host parameter with its own ID, model formatting, Kit/chromatic collision,
+in the editor, each model's controls held to what its code reads and a route on a control it does
+not show drawn but never offered, presets pairing every host parameter with its own ID, model formatting, Kit/chromatic collision,
 shared-channel chord arbitration under permutation, note ownership/tuning/choke including choke
 after NoteOff/CC123 and host-order-independent owner events, chromatic bounds, both saturation
 policies, stereo fold-down of stored outputs, Mute/Solo precedence, panic, both audio-layout

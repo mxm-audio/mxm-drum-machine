@@ -11,11 +11,12 @@ reference calibration is recorded separately from hardware fidelity, which remai
 
 Each slot has four modulation routes of its own, edited beside the control each moves rather than
 through a global route list. A slot's controls reach the host as `Control 1`…`Control 20`, the same
-general scheme as mxm-model-drums; the panel names each as the drum does. Three LFOs are shared
+general scheme as mxm-model-drums; the panel shows only the controls the selected drum uses, each
+named as the drum does. Three LFOs are shared
 kit-wide. Each has one Sync button: off, Rate is in hertz;
 on, the same Rate knob snaps to musical divisions such as 1/16, 1/8 and 1/4T. Per-slot Tune, Decay,
 Tone, Attack, Body, Snappy/noise and model-specific controls include
-separate Pitch envelope, Pitch decay and Noise decay where the circuit supports them. Every added envelope
+separate Pitch drop, Pitch decay and Noise decay where the circuit supports them. Every added envelope
 control defaults to zero, preserving the
 source/reference sound; positive Decay travel extends beyond stock on extensible analogue models.
 Each slot also selects main `L+R` or one of sixteen shareable mono individual outputs, named

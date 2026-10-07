@@ -61,11 +61,17 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   `lfo{1,2,3}_{rate,shape,sync}` and `resample` (`params::slot_ids`, `GLOBAL_IDS`;
   `the_ids_are_complete_unique_and_651`). Nested arrays add `_<slot>`, one-based.
 - **The controls are the named ones of before, mechanically** (the owner, 2026-10-07): `params::control`
-  holds which is which — model-drums' common seven first (Tune, Decay, Tone, Attack, then
-  Dynamics in Velocity's place, Pitch envelope in Pitch drop's, Pitch decay), then Body, Noise,
-  Noise decay, Character. Each keeps its range, default, unit, smoothing and path into the DSP;
-  every kit sounds bit-identical ([NOTES.md § the move](NOTES.md#the-move-to-general-controls-and-route-slots-2026-10-07)).
-  Controls 12–20 mean nothing on any model: never read, never drawn. Per-model redesign is later.
+  holds which is which — model-drums' common seven first (Tune, Decay, Tone, Attack, the velocity
+  response, the pitch drop, its time), then Body, Noise, Noise decay, Character. Each keeps its
+  range, default, unit, smoothing and path into the DSP; every kit sounds bit-identical
+  ([NOTES.md § the move](NOTES.md#the-move-to-general-controls-and-route-slots-2026-10-07)).
+  Controls 12–20 mean nothing on any model: never read, never drawn.
+- **A model shows only the controls its code reads, under its own names** (the owner, 2026-10-07:
+  honest controls; decided from the code, never from renders). `editor::controls` is the table —
+  each model's knobs, names and help, a control that waits on another saying so — held to the DSP's
+  `ModelId::capabilities` (`each_model_shows_exactly_the_controls_its_code_reads`). A general name
+  stays where honest; one that misleads names what the control does (*Soft hits*, *Gain*, *Snappy
+  decay*, …). The table and the reasons: [NOTES.md § Each model's controls](NOTES.md#each-models-controls-2026-10-07).
 - **IDs are free to change during pre-alpha** (the owner, 2026-10-07), a recorded deviation from
   `../AGENTS.md`'s *Permanent identifiers* until the first release; nothing migrates old IDs ("There
   are no saved projects - we are in pre alpha", 2026-09-30). Changing Model never changes the host
@@ -84,8 +90,9 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
 - **Four route slots a drum**: source `Off`, LFO 1–3, Wheel, Pressure, Velocity, Random; target
   `Off`, `Control 1`…`20`, `Level`, `Pan` (`routes::RouteTarget`). A route is in use when neither is
   Off; switching its source off keeps its target and amount; two on one source and target add; one
-  aimed at Controls 12–20 does nothing. `Routes::routing_from` fills the DSP's unchanged per-slot
-  grid; an in-use route at settled zero leaves its per-sample list. Controls, routes and the shell's
+  aimed at a control the model does not read (12–20 on every model) does nothing.
+  `Routes::routing_from` fills the DSP's unchanged per-slot grid; an in-use route at settled zero
+  leaves its per-sample list. Controls, routes and the shell's
   DSP engine are boxed, so no host thread's stack overflows.
 - The 3,227-parameter surface's IDs (`pitch_N`…, `route_<target>_<source>_{on,amount}_N`) and the
   older `lfo{1,2,3}_division` and unsuffixed route IDs are gone; their history is in
@@ -97,17 +104,18 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   No standalone Routes card: each knob's routes are rows under it, over the selected slot's four
   route slots, as model-drums' editor draws them (`route_stack`): `‹ modulate ›` offers the sources
   not on it while a slot is free, adding takes a free slot (one aimed at that knob first) in one
-  bracketed gesture, removing switches the source off. Each LFO row is Rate, Sync, then six
-  **drawn** shapes.
+  bracketed gesture, removing switches the source off. **Only a shown knob offers sources**; a route
+  already aimed at a control the model does not show is drawn under `<name> (unused)`, removable,
+  never offered more. Each LFO row is Rate, Sync, then six **drawn** shapes.
 - Output is the last card: Level/Pan, Output, Choke group, MIDI channel, then **All slots**
   (`binding::set_together`), which is not a parameter and stores nothing.
 - **Kit-wide controls sit in the app bar**: Master, then Resample and Export samples, sized from the
   widest label (`resample_pair_width`) and the last thing a narrow bar folds into `…`
   (`resample_menu_items`). The button reads "Export samples", never "Export pack".
-- **The panel names a control as before, the host by its number** (`Axis::name`): Tune, Decay, …;
-  snare Noise reads Snappy. Route rows read the DSP's target names (Tune's *Tune*, Level's
-  *Amplitude*). Unsupported controls stay visible and disabled. **No engineering prose in editor
-  copy**; the model's description is the selector's hover text, in the sound's words.
+- **The panel names a control by its model's name, the host by its number** (`Axis::name`); route
+  rows read their knob's name (Level, not *Amplitude*). An Off or unavailable id keeps the eleven
+  general controls, disabled. **No engineering prose in editor copy**; the model's description is
+  the selector's hover text, in the sound's words.
 - Selection is transient editor state; clicking a slot never auditions it and selection never moves
   a control. Durable edits are bracketed gestures through one binding module.
 - The Model card's sound trace renders off the audio thread from the actual DSP model; never a
@@ -130,8 +138,8 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
 - `resample` is off in Init and every kit; no kit engages it. `refresh_captures` runs in `activate`,
   never in `process`; a failed capture leaves the instrument live.
 - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
-  sound. To change a frozen kit: off, edit, on. Tune and Decay (Controls 1 and 2) stay live as
-  playback controls.
+  sound. To change a frozen kit: off, edit, on. Tune, Decay and Soft hits (Controls 1, 2 and 5)
+  stay live as playback controls.
 - Running toggles go to `capture_worker::CaptureWorker`, one thread per instance joined in its
   `Drop`. **Never use nice-plug's `AsyncExecutor::execute_background`; `task_executor` stays a no-op.**
 - `service_captures` is a pointer swap with no allocation, lock or drop. `CaptureBank` hands kits

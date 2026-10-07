@@ -114,4 +114,4 @@ clap-validator validate "target/bundled/mxm-drum-machine.clap"
 
 | Doc | Scope |
 |---|---|
-| [`mxm-drum-machine/AGENTS.md`](mxm-drum-machine/AGENTS.md) | Original sixteen-slot drum instrument over an append-only pool of machine-specific circuits; all 94 admitted models owner listening-approved; mxm-model-drums' parameter scheme (twenty general controls and four route slots a slot, 651 parameters, IDs free during pre-alpha); Kit or chromatic MIDI per slot, stereo main plus sixteen mono outputs, nine source-family audition presets on one canonical role map |
+| [`mxm-drum-machine/AGENTS.md`](mxm-drum-machine/AGENTS.md) | Original sixteen-slot drum instrument over an append-only pool of machine-specific circuits; all 94 admitted models owner listening-approved; mxm-model-drums' parameter scheme (twenty general controls and four route slots a slot, 651 parameters, IDs free during pre-alpha), each model showing only the controls its code reads; Kit or chromatic MIDI per slot, stereo main plus sixteen mono outputs, nine source-family audition presets on one canonical role map |

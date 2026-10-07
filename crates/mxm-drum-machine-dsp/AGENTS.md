@@ -45,7 +45,8 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
 - `pitch_envelope`, `pitch_decay` and `noise_decay` are additive: zero keeps the native excursion and
   timing, and an unswept circuit stays unswept. Positive Decay reaches bounded extended decay where
   the topology permits; never fake it by looping fixed PCM.
-- Unsupported axes are exact no-ops, kept in the plugin's fixed inventory.
+- Unsupported axes are exact no-ops, kept in the plugin's fixed inventory. `capabilities` is exactly
+  what each model's code reads: the plugin's panel shows a model those controls and no others.
 - The static output-adaptation plane is a fixed, offline-measured trim per model in `engine.rs`, not
   a limiter or AGC. A renderer gain change remeasures the whole table; never hand-correct one trim.
 - `ModelId::reference_pitch_hz` is the measured **rest** pitch; `chromatic_reference_key` is concert

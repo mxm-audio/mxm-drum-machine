@@ -44,11 +44,13 @@ reference-centred controls. It does not lead with a step row: sequencing belongs
 7. **Noise decay** — independent wire/noise-envelope time where the topology actually separates it
    from the tonal body.
 
-Model, Tune, Decay and Tone are Primary controls on their selected-slot cards. Attack, Pitch envelope,
-Pitch decay, Body, Noise/Snappy, Noise decay, Character, Dynamics, Level and Pan are Standard or
+Model, Tune, Decay and Tone are Primary controls on their selected-slot cards. Attack, Pitch drop,
+Pitch decay, Body, Noise/Snappy, Noise decay, Character, Soft hits, Level and Pan are Standard or
 Compact according to measured card fit. Each slot
-row also carries Mute and Solo. An unavailable axis remains named and visibly unavailable; it is
-never silently reassigned.
+row also carries Mute and Solo. **A model shows only the controls its code reads, each under the
+model's honest name** (the owner, 2026-10-07; the plugin's `editor::controls` and its `NOTES.md`, *Each
+model's controls*); a control is never silently reassigned. *(Until 2026-10-07 an unavailable axis
+remained named and visibly unavailable.)*
 
 ### Source-control coverage
 
@@ -56,7 +58,7 @@ The common surface is intentionally a superset of the source panels, not a reduc
 
 | Source control/function | Editor mapping |
 |---|---|
-| Per-voice Level | Level; Dynamics bends the velocity response around reference. The source machines' accent is deliberately not modelled — see §3 |
+| Per-voice Level | Level; Soft hits (Dynamics until 2026-10-07) bends the velocity response around reference. The source machines' accent is deliberately not modelled — see §3 |
 | 808 bass Tone / Decay | Tone / Decay; Pitch and Pitch envelope are additional circuit-bend controls |
 | 808 snare Tone / Snappy | Tone / Noise, locally labelled Snappy; Noise decay extends the distinct wire envelope |
 | 808 tom/conga tuning; cymbal Tone/Decay; open-hat Decay | Tune; Tone/Decay; Decay respectively |
@@ -112,8 +114,8 @@ the CR-78/CR-8000/DR-110 global accent envelopes — and `research:instruments/a
 §822 records that those boxes have accent rather than continuous key velocity. **None of it is
 modelled.** There is no accent control on this interface and there is not going to be one, because
 this instrument is played from a keyboard or a DAW rather than from a step sequencer with an accent
-button. One slot's level never depends on another's, and `Dynamics` bends that velocity response
-around its reference.
+button. One slot's level never depends on another's, and Soft hits (`dynamics`) bends that velocity
+response around its reference.
 
 Where several notes land on one slot at one sample, they are reduced to a single strike before any
 trigger so that host event order cannot change the sound, and the value that sounds is the **winning
@@ -148,8 +150,13 @@ Mute wins over Solo, and any active Solo silences all unmuted non-soloed slots.
 
 ## 5. Advanced controls and disclosure
 
-No model sound control is hidden merely because only some models use it. The fixed selected-slot
-axis cards show all eleven canonical shaping axes, reducing unavailable ones in emphasis and stating why.
+**A model shows only the controls its code reads** (the owner, 2026-10-07: honest controls), each
+under the model's own name, with what it does — and what it waits on, where it acts only while
+another control is set — in its hover text. A control the model never reads has no knob; its stored
+value stays, unread. A route still aimed at one is drawn, marked unused, and never offered more.
+*(Until 2026-10-07: "No model sound control is hidden merely because only some models use it. The
+fixed selected-slot axis cards show all eleven canonical shaping axes, reducing unavailable ones in
+emphasis and stating why.")*
 
 The only permitted disclosure is **Model notes**, inside the Model card: concise, musician-facing
 sound mechanism, pitch behaviour and audible shared interactions. Evidence status, parameter
@@ -172,8 +179,8 @@ Cards retain stable identities; pages derive from available space.
 |---|---|
 | Performance | `slots-01-08` and `slots-09-16`, each with eight compact rows. |
 | Modulators | One `lfos` card containing three stacked kit-wide LFO rows. Each row has Rate, one adjacent on/off Sync button (the collection's quarter note) and Shape; Sync makes Rate itself snap to musical divisions, never reveals a separate Division control. |
-| Generators | `model` for the selected slot's grouped searchable selector and Model notes; `excitation` for Tune, Attack and Dynamics plus their local route stacks; `body` for Body, Noise/Snappy and Character plus their local route stacks. |
-| Tone | `envelopes-tone` for Decay, Tone, Pitch envelope, Pitch decay and Noise decay plus their local route stacks; then `output`, the last card: the selected slot's Level and Pan with their local route stacks, followed by Output, Choke Group and MIDI channel. It is the slot's output stage, not a mix, so it ends the signal chain (owner, 2026-09-18). Directly under the slot's Output sits the one kit-wide **All slots** row, `L+R` or `Own outputs`, which writes all sixteen Output settings at once and lights neither cell when they form neither pattern (plan revision 42). It is here, beside the selector it generalises, because output routing is a rare action that design system §3.1 keeps out of the app bar. The whole kit's Master stays in the app bar, never beside one slot's controls. |
+| Generators | `model` for the selected slot's grouped searchable selector and Model notes; `excitation` for Controls 1, 4 and 5 (Tune, Attack, Soft hits) plus their local route stacks; `body` for Controls 8, 9 and 11 (Body, Noise/Snappy, Character) plus their local route stacks — each as the selected model shows and names it. |
+| Tone | `envelopes-tone` for Controls 2, 3, 10, 6 and 7 (Decay, Tone, Noise decay, Pitch drop, Pitch decay), as the model shows them, plus their local route stacks; then `output`, the last card: the selected slot's Level and Pan with their local route stacks, followed by Output, Choke Group and MIDI channel. It is the slot's output stage, not a mix, so it ends the signal chain (owner, 2026-09-18). Directly under the slot's Output sits the one kit-wide **All slots** row, `L+R` or `Own outputs`, which writes all sixteen Output settings at once and lights neither cell when they form neither pattern (plan revision 42). It is here, beside the selector it generalises, because output routing is a rare action that design system §3.1 keeps out of the app bar. The whole kit's Master stays in the app bar, never beside one slot's controls. |
 
 Category order is the collection order. Inside the signal path: slot/trigger context, modulation
 sources and routes, generator/model/excitation/body, then decay/tone and output. There are no
@@ -320,7 +327,10 @@ law in the circuit, and every kit renders bit-identically. Per-model redesign ca
 | `midi_channel` | `Slot N MIDI channel` | `Kit` or channel `1`…`16`; an instance setting presets never carry. |
 
 **The controls, the same on every model** — mxm-model-drums' common seven first, so automation keeps
-its sense across the two instruments; each control's panel name is the one it had:
+its sense across the two instruments. The panel name below is the general one; each model shows only
+the controls its code reads, under its own name where the general one would mislead (*Gain*, *Bend*,
+*Spread*, …: the plugin's `NOTES.md`, *Each model's controls*). *(Until 2026-10-07 each control's panel
+name was the one it had: Dynamics for 5, Pitch envelope for 6.)*
 
 | Control | Panel name | Kind / zero meaning (was) |
 |---|---|---|
@@ -328,17 +338,18 @@ its sense across the two instruments; each control's panel name is the one it ha
 | 2 | Decay | Time/feedback deviation; zero is reference and positive travel extends beyond stock where the topology permits. (`decay`) |
 | 3 | Tone | Internal spectral/filter deviation. (`tone`) |
 | 4 | Attack | Excitation/click/burst deviation. (`attack`) |
-| 5 | Dynamics | The velocity curve's exponent — how far a soft hit moves from a hard one, mxm-model-drums' Velocity place. (`dynamics`) |
-| 6 | Pitch envelope | Additive depth deviation; zero preserves a native reference sweep or leaves a source-accurate no-sweep circuit unchanged — mxm-model-drums' Pitch drop place. (`pitch_env`) |
+| 5 | Soft hits | The velocity curve's exponent; its top brings soft hits up — mxm-model-drums' Velocity place. (`dynamics`) |
+| 6 | Pitch drop; *Pitch sweep* where it also rises | Additive depth deviation; zero preserves a native reference sweep or leaves a source-accurate no-sweep circuit unchanged — mxm-model-drums' Pitch drop place. (`pitch_env`) |
 | 7 | Pitch decay | Additive pitch-envelope time deviation; zero preserves source/reference timing. (`pitch_decay`) |
 | 8 | Body | Tonal-body balance/shape deviation. (`body`) |
 | 9 | Noise; *Snappy* on a snare | Noise/snappy contribution deviation. (`noise`) |
-| 10 | Noise decay | Additive time deviation for a distinct wire/noise envelope; unsupported models are exact no-ops. (`noise_decay`) |
+| 10 | Noise decay; *Snappy decay* on a snare | Additive time deviation for a distinct wire/noise envelope; unsupported models are exact no-ops. (`noise_decay`) |
 | 11 | Character | Model-specific metal/room/nonlinear character deviation. (`character`) |
 | 12–20 | — | Unused on every model: exact no-ops, not on the panel. |
 
-An axis a model cannot use remains an ordinary parameter with zero effect for that model, visible
-and disabled on the panel, so model automation never changes the host's parameter inventory.
+An axis a model cannot use remains an ordinary parameter with zero effect for that model, not drawn
+on its panel (visible and disabled until 2026-10-07), so model automation never changes the host's
+parameter inventory.
 Parameter ranges, smoothing and route full scales were measured before D2's first bundle. The
 vocabulary of before, with its IDs, is kept in the plugin's `NOTES.md` (*The surface before
 2026-10-07*).
@@ -366,7 +377,7 @@ nothing. Each in-use route reaches the target the named control's grid pair reac
 … as the table above; Level the Amplitude target; Pan the pan), so one route is exactly that pair.
 Optional creative routes are all Off and zero in Init. Preset files store routes sparsely: nothing for
 a route not in use, its source and target for an in-use one at zero, and all three for one with
-depth. Velocity reaches each hit directly (through Dynamics) and is also a route source. Per-note
+depth. Velocity reaches each hit directly (through Soft hits) and is also a route source. Per-note
 tuning and channel bend enter model pitch directly, not as removable routes.
 
 **A recorded deviation**, as mxm-model-drums'. The collection's modulation standard
