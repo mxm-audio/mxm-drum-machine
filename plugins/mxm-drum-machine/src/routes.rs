@@ -1,304 +1,267 @@
-//! Permanent route parameters: one presence and signed amount for every target/source pair.
+//! Four route slots per drum, each a source, a target and an amount — mxm-model-drums' scheme (the
+//! owner, 2026-09-30: the host holds what the panel can show at once) in place of a presence and an
+//! amount for every one of the DSP's 13 targets × 7 sources.
+//!
+//! **The DSP is unchanged.** Its per-slot grid (`mxm_drum_machine_dsp::routing::Routing`) is filled
+//! from the four slots: a slot whose source and target both name something the grid has sets that
+//! pair present and adds its amount there, so one route reaches exactly what the same pair reached
+//! before, at the same per-route reach (`routing::FULL_SCALE`), and a kit with no routes — every
+//! factory kit — fills nothing and renders as it did.
+//!
+//! **What changed in behaviour** (recorded in the plugin's `NOTES.md`): a route is off when its source
+//! or its target is Off, and switching its source off keeps its target and amount; four routes a drum
+//! is the limit; two routes on one source and target add; a route aimed at a control this machine
+//! does not use (12–20) does nothing; and an amount reads as a percentage of its target's full reach
+//! for the host, since one parameter serves every target.
 
-use mxm_drum_machine_dsp::{
-    SLOT_COUNT,
-    routing::{
-        FULL_SCALE, Routing, SOURCE_NAMES, SOURCES, TARGET_NAMES, TARGETS, offer, source, target,
-    },
-};
-use mxm_modulation_params::Route;
-use mxm_modulation_params::reading::{self, Fader, Reach};
+use mxm_drum_machine_dsp::routing::{Routing, source, target};
 use nice_plug::prelude::*;
+use std::sync::Arc;
 
-macro_rules! route_ids {
-    ($target:literal, $slot:literal) => {
-        [
-            (
-                concat!("route_", $target, "_lfo1_amount_", $slot),
-                concat!("route_", $target, "_lfo1_on_", $slot),
-            ),
-            (
-                concat!("route_", $target, "_lfo2_amount_", $slot),
-                concat!("route_", $target, "_lfo2_on_", $slot),
-            ),
-            (
-                concat!("route_", $target, "_lfo3_amount_", $slot),
-                concat!("route_", $target, "_lfo3_on_", $slot),
-            ),
-            (
-                concat!("route_", $target, "_wheel_amount_", $slot),
-                concat!("route_", $target, "_wheel_on_", $slot),
-            ),
-            (
-                concat!("route_", $target, "_pressure_amount_", $slot),
-                concat!("route_", $target, "_pressure_on_", $slot),
-            ),
-            (
-                concat!("route_", $target, "_velocity_amount_", $slot),
-                concat!("route_", $target, "_velocity_on_", $slot),
-            ),
-            (
-                concat!("route_", $target, "_random_amount_", $slot),
-                concat!("route_", $target, "_random_on_", $slot),
-            ),
-        ]
-    };
+use crate::params::{CONTROLS, control};
+
+/// The route slots a drum holds.
+pub const ROUTES: usize = 4;
+
+/// A route's source, in model-drums' order.
+#[derive(Enum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceChoice {
+    #[id = "off"]
+    #[name = "Off"]
+    Off,
+    #[id = "lfo1"]
+    #[name = "LFO 1"]
+    Lfo1,
+    #[id = "lfo2"]
+    #[name = "LFO 2"]
+    Lfo2,
+    #[id = "lfo3"]
+    #[name = "LFO 3"]
+    Lfo3,
+    #[id = "wheel"]
+    #[name = "Wheel"]
+    Wheel,
+    #[id = "pressure"]
+    #[name = "Pressure"]
+    Pressure,
+    #[id = "velocity"]
+    #[name = "Velocity"]
+    Velocity,
+    #[id = "random"]
+    #[name = "Random"]
+    Random,
 }
 
-macro_rules! slot_route_ids {
-    ($slot:literal) => {
-        [
-            route_ids!("pitch", $slot),
-            route_ids!("decay", $slot),
-            route_ids!("attack", $slot),
-            route_ids!("tone", $slot),
-            route_ids!("body", $slot),
-            route_ids!("noise", $slot),
-            route_ids!("character", $slot),
-            route_ids!("level", $slot),
-            route_ids!("pan", $slot),
-            route_ids!("pitch_env", $slot),
-            route_ids!("pitch_decay", $slot),
-            route_ids!("noise_decay", $slot),
-            route_ids!("dynamics", $slot),
-        ]
-    };
+impl SourceChoice {
+    /// The sources a route can take, without Off, in the parameter's order.
+    pub const ALL: [Self; 7] = [
+        Self::Lfo1,
+        Self::Lfo2,
+        Self::Lfo3,
+        Self::Wheel,
+        Self::Pressure,
+        Self::Velocity,
+        Self::Random,
+    ];
+
+    /// The DSP's source, or `None` for Off. The seven are the grid's seven, one for one.
+    #[must_use]
+    pub const fn dsp(self) -> Option<usize> {
+        match self {
+            Self::Off => None,
+            Self::Lfo1 => Some(source::LFO1),
+            Self::Lfo2 => Some(source::LFO2),
+            Self::Lfo3 => Some(source::LFO3),
+            Self::Wheel => Some(source::WHEEL),
+            Self::Pressure => Some(source::PRESSURE),
+            Self::Velocity => Some(source::VELOCITY),
+            Self::Random => Some(source::RANDOM),
+        }
+    }
+
+    /// What the panel calls it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Lfo1 => "LFO 1",
+            Self::Lfo2 => "LFO 2",
+            Self::Lfo3 => "LFO 3",
+            Self::Wheel => "Wheel",
+            Self::Pressure => "Pressure",
+            Self::Velocity => "Velocity",
+            Self::Random => "Random",
+        }
+    }
 }
 
-/// `(amount, presence)` IDs in slot/target/source order.
-pub static ROUTE_IDS: [[[(&str, &str); SOURCES]; TARGETS]; SLOT_COUNT] = [
-    slot_route_ids!("1"),
-    slot_route_ids!("2"),
-    slot_route_ids!("3"),
-    slot_route_ids!("4"),
-    slot_route_ids!("5"),
-    slot_route_ids!("6"),
-    slot_route_ids!("7"),
-    slot_route_ids!("8"),
-    slot_route_ids!("9"),
-    slot_route_ids!("10"),
-    slot_route_ids!("11"),
-    slot_route_ids!("12"),
-    slot_route_ids!("13"),
-    slot_route_ids!("14"),
-    slot_route_ids!("15"),
-    slot_route_ids!("16"),
-];
+/// What a route moves, in model-drums' order: Off, Control 1…20, Level, Pan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum RouteTarget {
+    #[default]
+    Off,
+    /// One of the slot's general controls, 1…20.
+    Control(u8),
+    Level,
+    Pan,
+}
 
+impl RouteTarget {
+    /// Targets a route parameter holds: Off, twenty controls, Level and Pan.
+    pub const COUNT: usize = CONTROLS + 3;
+
+    /// The target at a parameter's index; out of range is Off.
+    #[must_use]
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            1..=CONTROLS => Self::Control(index as u8),
+            i if i == CONTROLS + 1 => Self::Level,
+            i if i == CONTROLS + 2 => Self::Pan,
+            _ => Self::Off,
+        }
+    }
+
+    /// The target's parameter index, [`Self::from_index`]'s inverse.
+    #[must_use]
+    pub fn index(self) -> usize {
+        match self {
+            Self::Off => 0,
+            Self::Control(k) => usize::from(k),
+            Self::Level => CONTROLS + 1,
+            Self::Pan => CONTROLS + 2,
+        }
+    }
+
+    /// **The DSP's target this moves**: each used control its own axis (`params::control`), Level
+    /// the Amplitude target, Pan the pan; `None` for Off and for controls 12–20, which mean nothing
+    /// here. Every one of the grid's thirteen targets is some route target's.
+    #[must_use]
+    pub const fn dsp(self) -> Option<usize> {
+        match self {
+            Self::Off => None,
+            Self::Level => Some(target::LEVEL),
+            Self::Pan => Some(target::PAN),
+            Self::Control(k) => match k as usize {
+                control::TUNE => Some(target::PITCH),
+                control::DECAY => Some(target::DECAY),
+                control::TONE => Some(target::TONE),
+                control::ATTACK => Some(target::ATTACK),
+                control::DYNAMICS => Some(target::DYNAMICS),
+                control::PITCH_ENV => Some(target::PITCH_ENV),
+                control::PITCH_DECAY => Some(target::PITCH_DECAY),
+                control::BODY => Some(target::BODY),
+                control::NOISE => Some(target::NOISE),
+                control::NOISE_DECAY => Some(target::NOISE_DECAY),
+                control::CHARACTER => Some(target::CHARACTER),
+                _ => None,
+            },
+        }
+    }
+}
+
+/// One route slot: a source, a target and an amount (`route<r>_{source,target,amount}`).
 #[derive(Params)]
-pub struct TargetRoutes {
-    #[id = "lfo1_on"]
-    pub lfo1_on: BoolParam,
-    #[id = "lfo1_amount"]
-    pub lfo1: FloatParam,
-    #[id = "lfo2_on"]
-    pub lfo2_on: BoolParam,
-    #[id = "lfo2_amount"]
-    pub lfo2: FloatParam,
-    #[id = "lfo3_on"]
-    pub lfo3_on: BoolParam,
-    #[id = "lfo3_amount"]
-    pub lfo3: FloatParam,
-    #[id = "wheel_on"]
-    pub wheel_on: BoolParam,
-    #[id = "wheel_amount"]
-    pub wheel: FloatParam,
-    #[id = "pressure_on"]
-    pub pressure_on: BoolParam,
-    #[id = "pressure_amount"]
-    pub pressure: FloatParam,
-    #[id = "velocity_on"]
-    pub velocity_on: BoolParam,
-    #[id = "velocity_amount"]
-    pub velocity: FloatParam,
-    #[id = "random_on"]
-    pub random_on: BoolParam,
-    #[id = "random_amount"]
-    pub random: FloatParam,
+pub struct RouteParams {
+    #[id = "source"]
+    pub source: EnumParam<SourceChoice>,
+    #[id = "target"]
+    pub target: IntParam,
+    #[id = "amount"]
+    pub amount: FloatParam,
 }
 
-impl TargetRoutes {
-    fn new(target: usize) -> Self {
+impl RouteParams {
+    fn new(r: usize) -> Self {
         Self {
-            lfo1_on: presence(target, source::LFO1),
-            lfo1: amount(target, source::LFO1),
-            lfo2_on: presence(target, source::LFO2),
-            lfo2: amount(target, source::LFO2),
-            lfo3_on: presence(target, source::LFO3),
-            lfo3: amount(target, source::LFO3),
-            wheel_on: presence(target, source::WHEEL),
-            wheel: amount(target, source::WHEEL),
-            pressure_on: presence(target, source::PRESSURE),
-            pressure: amount(target, source::PRESSURE),
-            velocity_on: presence(target, source::VELOCITY),
-            velocity: amount(target, source::VELOCITY),
-            random_on: presence(target, source::RANDOM),
-            random: amount(target, source::RANDOM),
+            source: EnumParam::new(format!("Route {r} source"), SourceChoice::Off),
+            target: target_param(r),
+            // The old pairs' travel and smoothing (`reading::amount_param` on a two-sided offer:
+            // −1…+1, linear, 15 ms); its reading is the target's share, since it serves every target.
+            amount: FloatParam::new(
+                format!("Route {r} amount"),
+                0.0,
+                FloatRange::Linear {
+                    min: -1.0,
+                    max: 1.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(15.0))
+            .with_value_to_string(formatters::v2s_f32_percentage(0))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
         }
     }
 
-    fn routes(&self, slot: usize, target: usize) -> [Route<'_>; SOURCES] {
-        [
-            route(slot, target, source::LFO1, &self.lfo1_on, &self.lfo1),
-            route(slot, target, source::LFO2, &self.lfo2_on, &self.lfo2),
-            route(slot, target, source::LFO3, &self.lfo3_on, &self.lfo3),
-            route(slot, target, source::WHEEL, &self.wheel_on, &self.wheel),
-            route(
-                slot,
-                target,
-                source::PRESSURE,
-                &self.pressure_on,
-                &self.pressure,
-            ),
-            route(
-                slot,
-                target,
-                source::VELOCITY,
-                &self.velocity_on,
-                &self.velocity,
-            ),
-            route(slot, target, source::RANDOM, &self.random_on, &self.random),
-        ]
+    /// What the route moves, as its parameter stands.
+    #[must_use]
+    pub fn target(&self) -> RouteTarget {
+        RouteTarget::from_index(self.target.value().max(0) as usize)
     }
 
-    fn amount(&self, source: usize) -> &FloatParam {
-        match source {
-            source::LFO1 => &self.lfo1,
-            source::LFO2 => &self.lfo2,
-            source::LFO3 => &self.lfo3,
-            source::WHEEL => &self.wheel,
-            source::PRESSURE => &self.pressure,
-            source::VELOCITY => &self.velocity,
-            source::RANDOM => &self.random,
-            _ => unreachable!("source is not declared"),
-        }
+    /// Whether the route is in use: a source and a target, neither Off. One that is not contributes
+    /// nothing and keeps its amount.
+    #[must_use]
+    pub fn in_use(&self) -> bool {
+        self.source.value() != SourceChoice::Off && self.target() != RouteTarget::Off
+    }
+
+    /// The grid pair `(target, source)` the route fills, if it fills one.
+    #[must_use]
+    pub fn pair(&self) -> Option<(usize, usize)> {
+        Some((self.target().dsp()?, self.source.value().dsp()?))
     }
 }
 
+/// The four route slots, nested so their IDs are `route<r>_<field>` inside a slot.
 #[derive(Params)]
 pub struct Routes {
-    #[nested(id_prefix = "route_pitch")]
-    pub pitch: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_decay")]
-    pub decay: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_attack")]
-    pub attack: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_tone")]
-    pub tone: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_body")]
-    pub body: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_noise")]
-    pub noise: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_character")]
-    pub character: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_level")]
-    pub level: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_pan")]
-    pub pan: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_pitch_env")]
-    pub pitch_env: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_pitch_decay")]
-    pub pitch_decay: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_noise_decay")]
-    pub noise_decay: Box<TargetRoutes>,
-    #[nested(id_prefix = "route_dynamics")]
-    pub dynamics: Box<TargetRoutes>,
+    #[nested(id_prefix = "route1")]
+    pub route1: RouteParams,
+    #[nested(id_prefix = "route2")]
+    pub route2: RouteParams,
+    #[nested(id_prefix = "route3")]
+    pub route3: RouteParams,
+    #[nested(id_prefix = "route4")]
+    pub route4: RouteParams,
 }
 
 impl Default for Routes {
     fn default() -> Self {
         Self {
-            pitch: Box::new(TargetRoutes::new(target::PITCH)),
-            decay: Box::new(TargetRoutes::new(target::DECAY)),
-            attack: Box::new(TargetRoutes::new(target::ATTACK)),
-            tone: Box::new(TargetRoutes::new(target::TONE)),
-            body: Box::new(TargetRoutes::new(target::BODY)),
-            noise: Box::new(TargetRoutes::new(target::NOISE)),
-            character: Box::new(TargetRoutes::new(target::CHARACTER)),
-            level: Box::new(TargetRoutes::new(target::LEVEL)),
-            pan: Box::new(TargetRoutes::new(target::PAN)),
-            pitch_env: Box::new(TargetRoutes::new(target::PITCH_ENV)),
-            pitch_decay: Box::new(TargetRoutes::new(target::PITCH_DECAY)),
-            noise_decay: Box::new(TargetRoutes::new(target::NOISE_DECAY)),
-            dynamics: Box::new(TargetRoutes::new(target::DYNAMICS)),
+            route1: RouteParams::new(1),
+            route2: RouteParams::new(2),
+            route3: RouteParams::new(3),
+            route4: RouteParams::new(4),
         }
     }
 }
 
 impl Routes {
-    #[cfg(test)]
-    pub(crate) fn set_all_present_for_test(&self) {
-        use nice_plug::params::InternalParamMut;
-
-        for target in 0..TARGETS {
-            let group = self.group(target);
-            for present in [
-                &group.lfo1_on,
-                &group.lfo2_on,
-                &group.lfo3_on,
-                &group.wheel_on,
-                &group.pressure_on,
-                &group.velocity_on,
-                &group.random_on,
-            ] {
-                // SAFETY: callers hold exclusive test ownership; no process or GUI thread exists.
-                unsafe { present._internal_set_plain_value(true) };
-            }
-        }
-    }
-
+    /// The four in order.
     #[must_use]
-    pub fn target(&self, slot: usize, target: usize) -> [Route<'_>; SOURCES] {
-        match target {
-            target::PITCH => self.pitch.routes(slot, target),
-            target::DECAY => self.decay.routes(slot, target),
-            target::ATTACK => self.attack.routes(slot, target),
-            target::TONE => self.tone.routes(slot, target),
-            target::BODY => self.body.routes(slot, target),
-            target::NOISE => self.noise.routes(slot, target),
-            target::CHARACTER => self.character.routes(slot, target),
-            target::LEVEL => self.level.routes(slot, target),
-            target::PAN => self.pan.routes(slot, target),
-            target::PITCH_ENV => self.pitch_env.routes(slot, target),
-            target::PITCH_DECAY => self.pitch_decay.routes(slot, target),
-            target::NOISE_DECAY => self.noise_decay.routes(slot, target),
-            target::DYNAMICS => self.dynamics.routes(slot, target),
-            _ => unreachable!("target is not declared"),
-        }
+    pub fn all(&self) -> [&RouteParams; ROUTES] {
+        [&self.route1, &self.route2, &self.route3, &self.route4]
     }
 
-    fn group(&self, target: usize) -> &TargetRoutes {
-        match target {
-            target::PITCH => &self.pitch,
-            target::DECAY => &self.decay,
-            target::ATTACK => &self.attack,
-            target::TONE => &self.tone,
-            target::BODY => &self.body,
-            target::NOISE => &self.noise,
-            target::CHARACTER => &self.character,
-            target::LEVEL => &self.level,
-            target::PAN => &self.pan,
-            target::PITCH_ENV => &self.pitch_env,
-            target::PITCH_DECAY => &self.pitch_decay,
-            target::NOISE_DECAY => &self.noise_decay,
-            target::DYNAMICS => &self.dynamics,
-            _ => unreachable!("target is not declared"),
-        }
-    }
-
+    /// **The DSP's grid, filled from the four slots.** A pair is live when a route on it has an
+    /// amount, or one still smoothing: as before, an assigned route at settled zero stays assigned
+    /// but leaves the compact per-sample list. Two routes on one pair add.
     #[must_use]
     pub fn routing_from(&self, _previous: &Routing) -> Routing {
         let mut routing = Routing::new();
-        for target in 0..TARGETS {
-            let rows = self.target(0, target);
-            for (source, row) in rows.iter().enumerate() {
-                let param = self.group(target).amount(source);
-                let assigned = row.is_present();
-                let amount = param.smoothed.previous_value();
-                // Assignment controls the interface and preset topology. DSP activity is narrower:
-                // an assigned zero-depth route stays assigned but leaves the compact sample loop.
-                routing.present[target][source] = assigned
-                    && (param.value() != 0.0 || amount != 0.0 || param.smoothed.is_smoothing());
+        let all = self.all();
+        let pairs = all.map(RouteParams::pair);
+        for (r, route) in all.into_iter().enumerate() {
+            let Some((target, source)) = pairs[r] else {
+                continue;
+            };
+            let param = &route.amount;
+            let amount = param.smoothed.previous_value();
+            routing.present[target][source] |=
+                param.value() != 0.0 || amount != 0.0 || param.smoothed.is_smoothing();
+            // The first route on a pair sets it, so one route alone is exactly the old pair's value.
+            if pairs[..r].contains(&pairs[r]) {
+                routing.amounts[target][source] += amount;
+            } else {
                 routing.amounts[target][source] = amount;
             }
         }
@@ -306,131 +269,87 @@ impl Routes {
         routing
     }
 
-    #[must_use]
-    pub fn omit_captured_parameter(&self, slot: usize, id: &str) -> bool {
-        for (target, ids) in ROUTE_IDS[slot].iter().enumerate() {
-            let routes = self.target(slot, target);
-            for (source, (amount_id, presence_id)) in ids.iter().enumerate() {
-                if id == *amount_id || id == *presence_id {
-                    return !routes[source].is_present();
-                }
-            }
-        }
-        false
-    }
-
+    /// Advances the smoothed amount of every route on a live pair, once a sample, into the grid.
     pub fn advance(&self, routing: &mut Routing) {
-        for index in 0..routing.live().len() {
-            let (target, source) = routing.live()[index];
-            routing.amounts[target as usize][source as usize] = self
-                .group(target as usize)
-                .amount(source as usize)
-                .smoothed
-                .next();
-        }
-    }
-
-    #[must_use]
-    pub fn parameters(&self, slot: usize) -> Vec<(&'static str, &dyn mxm_preset::ErasedParam)> {
-        let mut out = Vec::with_capacity(TARGETS * SOURCES * 2);
-        for (target, ids) in ROUTE_IDS[slot].iter().enumerate() {
-            let routes = self.target(slot, target);
-            for (source, route) in routes.iter().enumerate() {
-                out.push((ids[source].1, route.present as &dyn mxm_preset::ErasedParam));
-                out.push((ids[source].0, route.amount as &dyn mxm_preset::ErasedParam));
+        let all = self.all();
+        let pairs = all.map(RouteParams::pair);
+        for (r, route) in all.into_iter().enumerate() {
+            let Some((target, source)) = pairs[r] else {
+                continue;
+            };
+            if !routing.present[target][source] {
+                continue;
+            }
+            let next = route.amount.smoothed.next();
+            if pairs[..r].contains(&pairs[r]) {
+                routing.amounts[target][source] += next;
+            } else {
+                routing.amounts[target][source] = next;
             }
         }
-        out
     }
 }
 
-#[must_use]
-pub fn is_route_parameter(id: &str) -> bool {
-    ROUTE_IDS
-        .iter()
-        .flatten()
-        .flatten()
-        .any(|(amount, presence)| id == *amount || id == *presence)
-}
-
-fn route<'a>(
-    slot: usize,
-    target: usize,
-    source: usize,
-    present: &'a BoolParam,
-    amount: &'a FloatParam,
-) -> Route<'a> {
-    Route {
-        source: SOURCE_NAMES[source],
-        present,
-        amount,
-        amount_id: ROUTE_IDS[slot][target][source].0,
-        present_id: ROUTE_IDS[slot][target][source].1,
-    }
-}
-
-fn presence(target: usize, source: usize) -> BoolParam {
-    BoolParam::new(
-        format!("{} from {}", TARGET_NAMES[target], SOURCE_NAMES[source]),
-        false,
+/// A route's target: Off, Control 1…20, Level, Pan.
+fn target_param(r: usize) -> IntParam {
+    IntParam::new(
+        format!("Route {r} target"),
+        0,
+        IntRange::Linear {
+            min: 0,
+            max: RouteTarget::COUNT as i32 - 1,
+        },
     )
-}
-
-/// A route amount: signed, starting at zero — the collection's one route parameter
-/// (`mxm_modulation_params::reading`), on the travel the pair's offer allows, which here is always
-/// both halves.
-fn amount(target: usize, source: usize) -> FloatParam {
-    reading::amount_param(
-        format!("{} from {}", TARGET_NAMES[target], SOURCE_NAMES[source]),
-        reach(target, source),
-        Fader::for_offer(offer(target, source), false),
-        15.0,
-    )
-}
-
-/// What a route reads: what it delivers, in its target's unit — semitones on the pitch, and a
-/// percentage of the target's own range everywhere else, Amplitude's included (the standard
-/// factor's `+100 %` is double, `-100 %` silence; it read `±12.0 dB` before the modulation
-/// standard, `plans/plan-modulation-standard.md`).
-fn reach(target: usize, source: usize) -> Reach {
-    let unit = if target == target::PITCH {
-        reading::SEMITONES
-    } else {
-        reading::PERCENT
-    };
-    Reach::new(FULL_SCALE[target][source], unit)
+    .with_value_to_string(Arc::new(|value| {
+        match RouteTarget::from_index(value.max(0) as usize) {
+            RouteTarget::Off => "Off".to_owned(),
+            RouteTarget::Control(k) => format!("Control {k}"),
+            RouteTarget::Level => "Level".to_owned(),
+            RouteTarget::Pan => "Pan".to_owned(),
+        }
+    }))
+    .with_string_to_value(Arc::new(|text| {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("off") {
+            Some(0)
+        } else if text.eq_ignore_ascii_case("level") {
+            Some(CONTROLS as i32 + 1)
+        } else if text.eq_ignore_ascii_case("pan") {
+            Some(CONTROLS as i32 + 2)
+        } else {
+            text.strip_prefix("Control ")
+                .unwrap_or(text)
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|k| (1..=CONTROLS as i32).contains(k))
+        }
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mxm_drum_machine_dsp::routing::{SOURCES, TARGETS};
+    use nice_plug::params::InternalParamMut;
 
-    #[test]
-    fn the_id_table_matches_the_derived_parameter_surface() {
-        let params = crate::params::MxmDrumMachineParams::default();
-        let derived: Vec<_> = params
-            .param_map()
-            .into_iter()
-            .map(|(id, _, _)| id)
-            .collect();
-        let mut route_count = 0;
-        for slot in ROUTE_IDS {
-            for row in slot {
-                for (amount, presence) in row {
-                    assert!(derived.contains(&amount.to_owned()), "missing {amount}");
-                    assert!(derived.contains(&presence.to_owned()), "missing {presence}");
-                    route_count += 2;
-                }
-            }
+    /// Sets route `r` to `source` on `target` at `amount`, its smoother at rest there.
+    fn set(routes: &Routes, r: usize, source: SourceChoice, target: RouteTarget, amount: f32) {
+        let route = routes.all()[r];
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
+        unsafe {
+            route.source._internal_set_plain_value(source);
+            route
+                .target
+                ._internal_set_plain_value(target.index() as i32);
+            route.amount._internal_set_plain_value(amount);
+            route.amount._internal_update_smoother(48_000.0, true);
         }
-        assert_eq!(route_count, SLOT_COUNT * TARGETS * SOURCES * 2);
-        assert!(!derived.contains(&"route_pitch_lfo1_amount".to_owned()));
     }
 
     #[test]
-    fn init_has_no_routes_but_dormant_amounts_remain_readable() {
-        let routes = Routes::default();
-        let routing = routes.routing_from(&Routing::new());
+    fn init_has_no_routes() {
+        let routing = Routes::default().routing_from(&Routing::new());
         assert!(!routing.any());
         assert!(routing.present.iter().flatten().all(|present| !present));
         assert!(
@@ -442,25 +361,84 @@ mod tests {
         );
     }
 
+    /// **Every grid pair is reachable from a route slot, and each from exactly one source and one
+    /// target**: the seven sources one for one, the thirteen targets from Controls 1–11, Level and
+    /// Pan, and nothing from Off or Controls 12–20.
     #[test]
-    fn an_assigned_zero_route_stays_visible_but_leaves_the_dsp_list() {
-        use nice_plug::params::InternalParamMut;
-
-        let routes = Routes::default();
-        let presence = &routes.pitch.lfo1_on;
-        let amount = &routes.pitch.lfo1;
-        unsafe {
-            presence._internal_set_plain_value(true);
-            amount._internal_update_smoother(48_000.0, true);
+    fn every_grid_pair_has_exactly_one_route_spelling() {
+        let mut targets = [0; TARGETS];
+        for index in 0..RouteTarget::COUNT {
+            if let Some(t) = RouteTarget::from_index(index).dsp() {
+                targets[t] += 1;
+            }
         }
+        assert_eq!(targets, [1; TARGETS]);
+        for k in control::USED + 1..=CONTROLS {
+            assert_eq!(RouteTarget::Control(k as u8).dsp(), None, "control {k}");
+        }
+        let mut sources = [0; SOURCES];
+        for choice in SourceChoice::ALL {
+            sources[choice.dsp().expect("a source")] += 1;
+        }
+        assert_eq!(sources, [1; SOURCES]);
+        assert_eq!(SourceChoice::Off.dsp(), None);
+        for index in 0..RouteTarget::COUNT {
+            assert_eq!(RouteTarget::from_index(index).index(), index);
+        }
+    }
 
+    /// One route fills its pair alone, at its amount; a route whose source or target is Off, or
+    /// whose target this machine does not use, fills nothing and keeps its amount.
+    #[test]
+    fn a_route_fills_its_pair_and_an_unused_one_fills_nothing() {
+        let routes = Routes::default();
+        set(&routes, 0, SourceChoice::Lfo2, RouteTarget::Control(1), 0.5);
+        let routing = routes.routing_from(&Routing::new());
+        assert_eq!(routing.live(), &[(target::PITCH as u8, source::LFO2 as u8)]);
+        assert_eq!(routing.amounts[target::PITCH][source::LFO2], 0.5);
+
+        for (source, target) in [
+            (SourceChoice::Off, RouteTarget::Control(1)),
+            (SourceChoice::Lfo2, RouteTarget::Off),
+            (SourceChoice::Lfo2, RouteTarget::Control(12)),
+        ] {
+            set(&routes, 0, source, target, 0.5);
+            assert!(
+                !routes.routing_from(&Routing::new()).any(),
+                "{source:?} {target:?}"
+            );
+            assert_eq!(routes.route1.amount.value(), 0.5, "the amount stays");
+        }
+    }
+
+    /// Two routes on one pair add; each advances its own smoother once a sample.
+    #[test]
+    fn two_routes_on_one_pair_add() {
+        let routes = Routes::default();
+        set(&routes, 1, SourceChoice::Random, RouteTarget::Pan, 0.25);
+        set(&routes, 3, SourceChoice::Random, RouteTarget::Pan, 0.5);
         let mut routing = routes.routing_from(&Routing::new());
-        assert!(routes.target(0, target::PITCH)[source::LFO1].is_present());
+        assert_eq!(routing.live().len(), 1);
+        assert_eq!(routing.amounts[target::PAN][source::RANDOM], 0.75);
+        routes.advance(&mut routing);
+        assert_eq!(routing.amounts[target::PAN][source::RANDOM], 0.75);
+    }
+
+    #[test]
+    fn an_assigned_zero_route_stays_assigned_but_leaves_the_dsp_list() {
+        let routes = Routes::default();
+        set(&routes, 0, SourceChoice::Lfo1, RouteTarget::Control(1), 0.0);
+        let mut routing = routes.routing_from(&Routing::new());
+        assert!(routes.route1.in_use());
         assert!(!routing.any(), "assigned zero depth must cost no route DSP");
 
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
         unsafe {
-            amount._internal_set_plain_value(0.5);
-            amount._internal_update_smoother(48_000.0, false);
+            routes.route1.amount._internal_set_plain_value(0.5);
+            routes
+                .route1
+                .amount
+                ._internal_update_smoother(48_000.0, false);
         }
         routing = routes.routing_from(&routing);
         assert!(routing.any());
@@ -468,9 +446,13 @@ mod tests {
             routes.advance(&mut routing);
         }
 
+        // SAFETY: as above.
         unsafe {
-            amount._internal_set_plain_value(0.0);
-            amount._internal_update_smoother(48_000.0, false);
+            routes.route1.amount._internal_set_plain_value(0.0);
+            routes
+                .route1
+                .amount
+                ._internal_update_smoother(48_000.0, false);
         }
         routing = routes.routing_from(&routing);
         assert!(routing.any(), "the return to zero remains smoothed");
@@ -480,70 +462,47 @@ mod tests {
         routing = routes.routing_from(&routing);
         assert!(!routing.any(), "settled zero depth leaves the DSP list");
         assert!(
-            routes.target(0, target::PITCH)[source::LFO1].is_present(),
-            "zero depth must not remove the assignment"
+            routes.route1.in_use(),
+            "zero depth must not remove the route"
         );
     }
 
-    use mxm_plugin_test::routing_checks;
-
-    /// Each target's group, by index.
-    fn group(routes: &Routes, target: usize) -> &TargetRoutes {
-        [
-            &routes.pitch,
-            &routes.decay,
-            &routes.attack,
-            &routes.tone,
-            &routes.body,
-            &routes.noise,
-            &routes.character,
-            &routes.level,
-            &routes.pan,
-            &routes.pitch_env,
-            &routes.pitch_decay,
-            &routes.noise_decay,
-            &routes.dynamics,
-        ][target]
-    }
-
-    /// **Every route parameter says what the DSP does** — the modulation standard's plugin half:
-    /// each pair's travel is its offer's, its reading carries its target's unit and states what
-    /// `mxm_drum_machine_dsp::conformance` measures a slot's own graph delivering, and every reading
-    /// survives the host's round trip.
-    ///
-    /// Falsified before trusted: with Amplitude read in decibels again, it names every Amplitude
-    /// pair from a performance source.
+    /// **One amount serves every pair**: the DSP offers each of its pairs on both halves
+    /// (`mxm_drum_machine_dsp::conformance::Declared`), so a route slot's −1…+1 travel is every
+    /// pair's — the plugin half of the modulation standard that four general route slots can keep.
+    /// The pair-by-pair reading `mxm_plugin_test::routing_checks` holds needs a parameter per pair,
+    /// which this surface no longer has: a recorded deviation, as model-drums'.
     #[test]
-    fn every_route_parameter_says_what_the_dsp_does() {
+    fn a_route_amount_travels_what_every_pair_is_offered() {
+        use mxm_modulation::conformance::Declaration;
+        use mxm_modulation_params::reading::Fader;
+
+        let declared = mxm_drum_machine_dsp::conformance::Declared;
         let routes = Routes::default();
-        if let Err(failures) = routing_checks::amounts(
-            &mxm_drum_machine_dsp::conformance::Declared,
-            |target, source| Some(group(&routes, target).amount(source)),
-        ) {
-            panic!("{} failure(s):\n{}", failures.len(), failures.join("\n"));
+        let amount = &routes.route1.amount;
+        let travel = (amount.preview_plain(0.0), amount.preview_plain(1.0));
+        for t in 0..declared.targets() {
+            for s in 0..declared.sources() {
+                let offer = declared.offered(t, s);
+                assert_eq!(
+                    Fader::for_offer(offer, false).bounds(),
+                    travel,
+                    "{}",
+                    declared.name(t, s)
+                );
+            }
         }
     }
 
-    /// **Amplitude reads a percentage of the level**, `+100 %` doubling it — the standard factor.
     #[test]
-    fn amplitude_reads_the_standard_factor() {
-        let route = amount(target::LEVEL, source::VELOCITY);
-        assert_eq!(route.normalized_value_to_string(1.0, true), "+100 %");
-        assert_eq!(route.normalized_value_to_string(0.25, true), "-50 %");
-        assert_eq!(route.name(), "Amplitude from Velocity");
-    }
-
-    #[test]
-    fn readings_round_trip_without_negative_zero() {
-        let route = amount(target::PITCH, source::LFO1);
-        for value in [-0.0001, 0.0, 0.0001, -1.0, 1.0] {
-            let normalized = route.preview_normalized(value);
-            let text = route.normalized_value_to_string(normalized, true);
-            assert!(!text.contains("-0.00"), "{text}");
-            let parsed = route
+    fn target_text_round_trips() {
+        let target = target_param(1);
+        for index in 0..RouteTarget::COUNT as i32 {
+            let text = target.normalized_value_to_string(target.preview_normalized(index), true);
+            let parsed = target
                 .string_to_normalized_value(&text)
-                .expect("route reading");
-            assert!((route.preview_plain(parsed) - value).abs() < 0.001);
+                .unwrap_or_else(|| panic!("could not parse {text:?}"));
+            assert_eq!(target.preview_plain(parsed), index, "{text}");
         }
     }
 }

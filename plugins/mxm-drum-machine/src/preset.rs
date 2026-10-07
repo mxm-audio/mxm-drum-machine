@@ -7,9 +7,10 @@
 
 use std::sync::RwLock;
 
+use mxm_drum_machine_dsp::SLOT_COUNT;
 use mxm_preset::{Instrument, PresetIdentity};
 
-use crate::params::MxmDrumMachineParams;
+use crate::params::{GLOBAL_IDS, MxmDrumMachineParams, SLOT_PARAMETERS, route_of, slot_ids};
 
 pub use mxm_preset::Library;
 
@@ -19,47 +20,11 @@ impl Instrument for MxmDrumMachineParams {
     }
 
     fn parameters(&self) -> Vec<(&'static str, &dyn mxm_preset::ErasedParam)> {
-        let mut out = Vec::with_capacity(16 * (19 + 13 * 7 * 2) + 11);
+        let mut out = Vec::with_capacity(SLOT_COUNT * SLOT_PARAMETERS + GLOBAL_IDS.len());
         for (slot, params) in self.slots.iter().enumerate() {
-            out.extend([
-                (
-                    crate::editor::MODEL_IDS[slot],
-                    &params.model as &dyn mxm_preset::ErasedParam,
-                ),
-                (crate::editor::PITCH_IDS[slot], &params.pitch),
-                (crate::editor::PITCH_ENV_IDS[slot], &params.pitch_env),
-                (crate::editor::PITCH_DECAY_IDS[slot], &params.pitch_decay),
-                (crate::editor::DECAY_IDS[slot], &params.decay),
-                (crate::editor::ATTACK_IDS[slot], &params.attack),
-                (crate::editor::TONE_IDS[slot], &params.tone),
-                (crate::editor::BODY_IDS[slot], &params.body),
-                (crate::editor::NOISE_IDS[slot], &params.noise),
-                (crate::editor::NOISE_DECAY_IDS[slot], &params.noise_decay),
-                (crate::editor::CHARACTER_IDS[slot], &params.character),
-                (crate::editor::DYNAMICS_IDS[slot], &params.dynamics),
-                (crate::editor::LEVEL_IDS[slot], &params.level),
-                (crate::editor::PAN_IDS[slot], &params.pan),
-                (crate::editor::MUTE_IDS[slot], &params.mute),
-                (crate::editor::SOLO_IDS[slot], &params.solo),
-                (crate::editor::OUTPUT_IDS[slot], &params.output),
-                (crate::editor::CHOKE_GROUP_IDS[slot], &params.choke_group),
-                (crate::editor::MIDI_CHANNEL_IDS[slot], &params.midi_channel),
-            ]);
-            out.extend(params.routes.parameters(slot));
+            out.extend(slot_ids(slot).iter().copied().zip(params.parameters()));
         }
-        out.extend([
-            ("master", &self.master as &dyn mxm_preset::ErasedParam),
-            ("lfo1_rate", &self.lfo1_rate),
-            ("lfo1_shape", &self.lfo1_shape),
-            ("lfo1_sync", &self.lfo1_sync),
-            ("lfo2_rate", &self.lfo2_rate),
-            ("lfo2_shape", &self.lfo2_shape),
-            ("lfo2_sync", &self.lfo2_sync),
-            ("lfo3_rate", &self.lfo3_rate),
-            ("lfo3_shape", &self.lfo3_shape),
-            ("lfo3_sync", &self.lfo3_sync),
-            ("resample", &self.resample),
-        ]);
+        out.extend(GLOBAL_IDS.into_iter().zip(self.globals()));
         out
     }
 
@@ -79,19 +44,21 @@ impl Instrument for MxmDrumMachineParams {
         id.starts_with("output_") || id.starts_with("midi_channel_") || id == "resample"
     }
 
+    // **Routes are stored sparsely**: a route slot's fields at their defaults store nothing, and a
+    // route not in use — its source or its target Off — stores nothing at all, its dormant target
+    // and amount being irrelevant to the kit. Resolving an omission writes the default, so loading a
+    // kit clears unrelated live routes. An in-use route at zero depth stores its source and target.
+
     fn default_missing_legacy_parameter(&self, id: &str) -> bool {
-        crate::routes::is_route_parameter(id)
+        route_of(id).is_some()
     }
 
     fn omit_default_parameter(&self, id: &str) -> bool {
-        crate::routes::is_route_parameter(id)
+        route_of(id).is_some()
     }
 
     fn omit_captured_parameter(&self, id: &str) -> bool {
-        self.slots
-            .iter()
-            .enumerate()
-            .any(|(slot, params)| params.routes.omit_captured_parameter(slot, id))
+        route_of(id).is_some_and(|(slot, r)| !self.slots[slot].routes.all()[r].in_use())
     }
 }
 
@@ -113,6 +80,7 @@ pub const FACTORY_FILES: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::params::at;
     use mxm_preset::{Category, Preset, Value, factory};
     use nice_plug::params::Param;
     use nice_plug::prelude::Params;
@@ -188,7 +156,7 @@ mod tests {
             let model = i32::from(if requested == 0 { fallback } else { requested });
             let model_value = parameter.model.preview_normalized(model);
             preset.params.insert(
-                crate::editor::MODEL_IDS[slot].to_owned(),
+                slot_ids(slot)[at::MODEL].to_owned(),
                 Value {
                     v: model_value,
                     text: (&parameter.model as &dyn mxm_preset::ErasedParam).format(model_value),
@@ -196,7 +164,7 @@ mod tests {
             );
             let mute_value = if requested == 0 { 1.0 } else { 0.0 };
             preset.params.insert(
-                crate::editor::MUTE_IDS[slot].to_owned(),
+                slot_ids(slot)[at::MUTE].to_owned(),
                 Value {
                     v: mute_value,
                     text: (&parameter.mute as &dyn mxm_preset::ErasedParam).format(mute_value),
@@ -206,7 +174,7 @@ mod tests {
                 .level
                 .preview_normalized(nice_plug::prelude::util::db_to_gain(ROLE_LEVEL_DB[slot]));
             preset.params.insert(
-                crate::editor::LEVEL_IDS[slot].to_owned(),
+                slot_ids(slot)[at::LEVEL].to_owned(),
                 Value {
                     v: level_value,
                     text: (&parameter.level as &dyn mxm_preset::ErasedParam).format(level_value),
@@ -252,7 +220,7 @@ mod tests {
             for (slot, expected_db) in ROLE_LEVEL_DB.into_iter().enumerate() {
                 let stored = preset
                     .params
-                    .get(crate::editor::LEVEL_IDS[slot])
+                    .get(slot_ids(slot)[at::LEVEL])
                     .unwrap_or_else(|| panic!("{} is missing level {}", design.name, slot + 1));
                 let gain = params.slots[slot].level.preview_plain(stored.v);
                 let actual_db = nice_plug::prelude::util::gain_to_db(gain);
@@ -329,62 +297,75 @@ mod tests {
         host.sort_unstable();
         assert_eq!(declared, host);
         declared.dedup();
-        assert_eq!(declared.len(), 16 * (19 + 13 * 7 * 2) + 11);
+        assert_eq!(
+            declared.len(),
+            SLOT_COUNT * SLOT_PARAMETERS + GLOBAL_IDS.len()
+        );
+        assert_eq!(declared.len(), 651);
     }
 
+    /// Presets write every parameter the host sees, each under its own ID: the same name and the
+    /// same default as the host's parameter of that ID.
     #[test]
-    fn route_assignment_and_amount_capture_sparsely_without_conflating_zero() {
+    fn presets_carry_every_host_parameter_under_its_own_id() {
+        let params = MxmDrumMachineParams::default();
+        let map = params.param_map();
+        let preset = params.parameters();
+        assert_eq!(preset.len(), map.len());
+        for (id, param) in preset {
+            let (_, ptr, _) = map
+                .iter()
+                .find(|(host, _, _)| host == id)
+                .unwrap_or_else(|| panic!("no host parameter {id}"));
+            // SAFETY: the pointer comes from `param_map` on `params`, which outlives this loop.
+            let (name, default) = unsafe { (ptr.name(), ptr.default_normalized_value()) };
+            assert_eq!(param.name(), name, "{id}");
+            assert_eq!(param.default_normalised(), default, "{id}");
+        }
+    }
+
+    /// **Routes capture sparsely without conflating zero**: a route at its defaults stores nothing;
+    /// one in use at zero depth stores its source and target; one with depth stores all three; and
+    /// one whose source is switched off stores nothing, its dormant target and depth included.
+    #[test]
+    fn routes_capture_sparsely_without_conflating_zero() {
+        use crate::routes::{RouteTarget, SourceChoice};
         use nice_plug::params::InternalParamMut;
 
         let params = MxmDrumMachineParams::default();
-        let (amount_id, presence_id) = crate::routes::ROUTE_IDS[0]
-            [mxm_drum_machine_dsp::routing::target::PITCH]
-            [mxm_drum_machine_dsp::routing::source::LFO1];
+        let ids = slot_ids(0);
+        let (source, target, amount) = (ids[at::source(1)], ids[at::target(1)], ids[at::amount(1)]);
+        let route = &params.slots[0].routes.route2;
+        let stored =
+            |preset: &Preset| [source, target, amount].map(|id| preset.params.contains_key(id));
         let sparse = Preset::capture("Sparse", Category::Template, &params);
-        let init = Preset::init(&params);
-        assert!(!sparse.params.contains_key(amount_id));
-        assert!(!sparse.params.contains_key(presence_id));
-        assert!(!init.params.contains_key(amount_id));
-        assert!(!init.params.contains_key(presence_id));
+        assert_eq!(stored(&sparse), [false; 3]);
+        assert_eq!(stored(&Preset::init(&params)), [false; 3]);
 
-        // Assignment at exactly zero remains explicit while its default amount costs no file data.
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
         unsafe {
-            params.slots[0]
-                .routes
-                .pitch
-                .lfo1_on
-                ._internal_set_plain_value(true)
-        };
+            route.source._internal_set_plain_value(SourceChoice::Lfo1);
+            route
+                .target
+                ._internal_set_plain_value(RouteTarget::Control(1).index() as i32);
+        }
         let zero = Preset::capture("Zero", Category::Template, &params);
-        assert!(zero.params.contains_key(presence_id));
-        assert!(!zero.params.contains_key(amount_id));
+        assert_eq!(stored(&zero), [true, true, false]);
 
-        unsafe {
-            params.slots[0]
-                .routes
-                .pitch
-                .lfo1
-                ._internal_set_plain_value(0.5)
-        };
+        // SAFETY: as above.
+        unsafe { route.amount._internal_set_plain_value(0.5) };
         let active = Preset::capture("Active", Category::Template, &params);
-        assert!(active.params.contains_key(presence_id));
-        assert!(active.params.contains_key(amount_id));
+        assert_eq!(stored(&active), [true, true, true]);
 
-        // Once unassigned, even a dormant nonzero amount is irrelevant and omitted.
-        unsafe {
-            params.slots[0]
-                .routes
-                .pitch
-                .lfo1_on
-                ._internal_set_plain_value(false)
-        };
-        let absent = Preset::capture("Absent", Category::Template, &params);
-        assert!(!absent.params.contains_key(presence_id));
-        assert!(!absent.params.contains_key(amount_id));
+        // Removed, its target and depth are dormant and irrelevant to the kit.
+        // SAFETY: as above.
+        unsafe { route.source._internal_set_plain_value(SourceChoice::Off) };
+        let removed = Preset::capture("Removed", Category::Template, &params);
+        assert_eq!(stored(&removed), [false; 3]);
 
         let (writes, problems) = sparse.resolve(&params);
         assert!(problems.is_empty(), "{problems:?}");
-        for id in [presence_id, amount_id] {
+        for id in [source, target, amount] {
             let (_, parameter, value) = writes
                 .iter()
                 .find(|(candidate, _, _)| *candidate == id)

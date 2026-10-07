@@ -36,7 +36,7 @@ use mxm_part_routing::{
 use nice_plug::midi::{Channel, Key, VoiceID};
 use nice_plug::prelude::*;
 
-use params::MxmDrumMachineParams;
+use params::{MxmDrumMachineParams, control};
 
 /// A note's identity in the shape the voice logic was written for. nice-plug 0.4 types it
 /// (`VoiceID`, `Channel`, `Key`, each with a wildcard); 0.3 handed over a host's wildcard (-1) as
@@ -115,19 +115,20 @@ fn kit_name(params: &MxmDrumMachineParams) -> String {
 fn capture_patches(params: &MxmDrumMachineParams) -> [SlotPatch; SLOT_COUNT] {
     std::array::from_fn(|index| {
         let slot = &params.slots[index];
+        let c = &slot.controls;
         SlotPatch {
             model: ModelId::new(slot.model.value().clamp(0, 255) as u8),
-            pitch_semitones: slot.pitch.value(),
-            pitch_envelope: slot.pitch_env.value(),
-            pitch_decay: slot.pitch_decay.value(),
-            decay: slot.decay.value(),
-            attack: slot.attack.value(),
-            tone: slot.tone.value(),
-            body: slot.body.value(),
-            noise: slot.noise.value(),
-            noise_decay: slot.noise_decay.value(),
-            character: slot.character.value(),
-            dynamics: slot.dynamics.value(),
+            pitch_semitones: c.get(control::TUNE).value(),
+            pitch_envelope: c.get(control::PITCH_ENV).value(),
+            pitch_decay: c.get(control::PITCH_DECAY).value(),
+            decay: c.get(control::DECAY).value(),
+            attack: c.get(control::ATTACK).value(),
+            tone: c.get(control::TONE).value(),
+            body: c.get(control::BODY).value(),
+            noise: c.get(control::NOISE).value(),
+            noise_decay: c.get(control::NOISE_DECAY).value(),
+            character: c.get(control::CHARACTER).value(),
+            dynamics: c.get(control::DYNAMICS).value(),
             level: 1.0,
             pan: 0.0,
             choke_group: slot
@@ -702,25 +703,28 @@ impl MxmDrumMachine {
             let channel = self.slot_channel[index] as usize % NUM_CHANNELS;
             let level = params.level.smoothed.next();
             let audible = slot_is_audible(params, any_solo);
+            // The general controls on the paths the named ones took (`params::control`). Controls
+            // 12–20 mean nothing here, so they are never read or advanced.
+            let c = &params.controls;
             SlotPatch {
                 model: ModelId::new(params.model.value().clamp(0, 255) as u8),
                 // Channel bend is fixed at ±2 semitones in this first slice; per-note tuning is
                 // already delivered by CLAP in semitones.
-                pitch_semitones: (params.pitch.smoothed.next()
+                pitch_semitones: (c.get(control::TUNE).smoothed.next()
                     + self.chromatic_pitch[index]
                     + 2.0 * self.bend[channel]
                     + self.tuning[index])
                     .clamp(-48.0, 48.0),
-                pitch_envelope: params.pitch_env.smoothed.next(),
-                pitch_decay: params.pitch_decay.smoothed.next(),
-                decay: params.decay.smoothed.next(),
-                attack: params.attack.smoothed.next(),
-                tone: params.tone.smoothed.next(),
-                body: params.body.smoothed.next(),
-                noise: params.noise.smoothed.next(),
-                noise_decay: params.noise_decay.smoothed.next(),
-                character: params.character.smoothed.next(),
-                dynamics: params.dynamics.smoothed.next(),
+                pitch_envelope: c.get(control::PITCH_ENV).smoothed.next(),
+                pitch_decay: c.get(control::PITCH_DECAY).smoothed.next(),
+                decay: c.get(control::DECAY).smoothed.next(),
+                attack: c.get(control::ATTACK).smoothed.next(),
+                tone: c.get(control::TONE).smoothed.next(),
+                body: c.get(control::BODY).smoothed.next(),
+                noise: c.get(control::NOISE).smoothed.next(),
+                noise_decay: c.get(control::NOISE_DECAY).smoothed.next(),
+                character: c.get(control::CHARACTER).smoothed.next(),
+                dynamics: c.get(control::DYNAMICS).smoothed.next(),
                 level: if audible { level } else { 0.0 },
                 pan: params.pan.smoothed.next(),
                 // Stepped, not smoothed: a group is an assignment, not a signal.
@@ -2096,11 +2100,12 @@ mod full_layout {
         for step in 0..8 {
             // SAFETY: as above.
             unsafe {
-                plugin.params.slots[0]
-                    .decay
+                let controls = &plugin.params.slots[0].controls;
+                controls
+                    .get(control::DECAY)
                     ._internal_set_plain_value(-1.0 + 0.25 * step as f32);
-                plugin.params.slots[0]
-                    .tone
+                controls
+                    .get(control::TONE)
                     ._internal_set_plain_value(0.1 * step as f32);
             }
             render(&mut plugin, &[36]);
@@ -2412,6 +2417,133 @@ mod full_layout {
             }
         }
         assert!(after.main.iter().all(|channel| silent(channel)));
+    }
+
+    /// The used controls in the order the named controls they replaced were declared (pitch, pitch
+    /// envelope, pitch decay, decay, attack, tone, body, noise, noise decay, character, dynamics),
+    /// so the *moved* scenario gives each the value it gave the old surface and its digests compare
+    /// with the record.
+    const DECLARED_BEFORE: [usize; control::USED] = [
+        control::TUNE,
+        control::PITCH_ENV,
+        control::PITCH_DECAY,
+        control::DECAY,
+        control::ATTACK,
+        control::TONE,
+        control::BODY,
+        control::NOISE,
+        control::NOISE_DECAY,
+        control::CHARACTER,
+        control::DYNAMICS,
+    ];
+
+    /// Points route `r` of `slot` at the DSP's grid pair `(target, source)` at `amount`.
+    fn route_to_pair(
+        params: &MxmDrumMachineParams,
+        slot: usize,
+        r: usize,
+        (target, source): (usize, usize),
+        amount: f32,
+    ) {
+        use crate::routes::{RouteTarget, SourceChoice};
+        let route = params.slots[slot].routes.all()[r];
+        let choice = SourceChoice::ALL
+            .into_iter()
+            .find(|choice| choice.dsp() == Some(source))
+            .expect("every source has a choice");
+        let aim = (0..RouteTarget::COUNT)
+            .map(RouteTarget::from_index)
+            .find(|aim| aim.dsp() == Some(target))
+            .expect("every target has a route target");
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
+        unsafe {
+            route.source._internal_set_plain_value(choice);
+            route.target._internal_set_plain_value(aim.index() as i32);
+            // Through the normalised value, as the grid's amounts were written for the record.
+            route
+                .amount
+                ._internal_set_normalized_value((amount + 1.0) / 2.0);
+        }
+    }
+
+    /// FNV-1a over the samples' bits.
+    fn fnv(hash: &mut u64, samples: &[f32]) {
+        for sample in samples {
+            for byte in sample.to_bits().to_le_bytes() {
+                *hash ^= u64::from(byte);
+                *hash = hash.wrapping_mul(0x100_0000_01b3);
+            }
+        }
+    }
+
+    /// **The same-sound harness**: a digest of every factory kit and Init rendered through the
+    /// plugin's own `process()` — all sixteen notes struck at once at velocity 0.8, half a second of
+    /// main and sixteen individual ports — as the kit stands, with every used control moved to its
+    /// own value, and (Init) with all four routes of every slot on four different grid pairs. It
+    /// asserts nothing: run it before and after a change that must not move the sound, and compare
+    /// the lines. Windows' bits (the owner, 2026-10-06: bit-exact pins are Windows'). `NOTES.md`
+    /// § Verification evidence records the run that proved the move to model-drums' parameter
+    /// scheme bit-identical (2026-10-07).
+    ///
+    /// `cargo test -p mxm-drum-machine --lib same_sound_digests -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a harness: prints digests to compare before and after a change, run by hand"]
+    fn same_sound_digests() {
+        let bank = mxm_preset::factory(&MxmDrumMachineParams::default());
+        let mut lines = Vec::new();
+        for kit in &bank {
+            for scenario in ["as-is", "moved", "routes"] {
+                if scenario == "routes" && kit.name != mxm_preset::INIT_NAME {
+                    continue;
+                }
+                let mut plugin = activated(0, |params| {
+                    let (writes, problems) = kit.resolve(params);
+                    assert!(problems.is_empty(), "{problems:?}");
+                    let map = params.param_map();
+                    for (id, _, value) in writes {
+                        let (_, ptr, _) =
+                            map.iter().find(|(m, _, _)| m == id).expect("a parameter");
+                        // SAFETY: as above.
+                        unsafe { ptr._internal_set_normalized_value(value) };
+                    }
+                    if scenario == "moved" {
+                        for (s, slot) in params.slots.iter().enumerate() {
+                            for (j, k) in DECLARED_BEFORE.into_iter().enumerate() {
+                                let n = 0.15 + 0.7 * (((s * 11 + j) as f32) * 0.618_034).fract();
+                                // SAFETY: as above.
+                                unsafe { slot.controls.get(k)._internal_set_normalized_value(n) };
+                            }
+                        }
+                    }
+                    if scenario == "routes" {
+                        use mxm_drum_machine_dsp::routing::{SOURCES, TARGETS};
+                        for s in 0..SLOT_COUNT {
+                            for r in 0..crate::routes::ROUTES {
+                                let pair = ((s * 4 + r) % TARGETS, (s + r * 3) % SOURCES);
+                                let amount = (((s * 4 + r) as f32) * 0.37).fract() * 1.6 - 0.8;
+                                route_to_pair(params, s, r, pair, amount);
+                            }
+                        }
+                    }
+                });
+                let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+                for call in 0..24 {
+                    let notes: Vec<u8> = if call == 0 {
+                        (36..52).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let rendered = render(&mut plugin, &notes);
+                    fnv(&mut hash, &rendered.main[0]);
+                    fnv(&mut hash, &rendered.main[1]);
+                    for port in &rendered.individual {
+                        fnv(&mut hash, port);
+                    }
+                }
+                lines.push(format!("{} / {scenario}: {hash:016x}", kit.name));
+            }
+        }
+        eprintln!("{}", lines.join("\n"));
     }
 }
 

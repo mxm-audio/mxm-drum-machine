@@ -1,4 +1,8 @@
 //! Reflowing editor for the sixteen-slot vertical slice.
+//!
+//! **The panel names a control by the model; the host by its number** (mxm-model-drums' scheme, the
+//! owner, 2026-09-30): a knob paints the name it always had — Tune, Decay, Snappy — over a general
+//! `Control k`, and each knob's routes are rows over the slot's four route slots.
 
 pub mod binding;
 
@@ -10,7 +14,7 @@ use mxm_drum_machine_dsp::SLOT_COUNT;
 use mxm_drum_machine_dsp::engine::{Engine, SlotPatch, TriggerGroup};
 use mxm_drum_machine_dsp::model::{AVAILABLE_MODELS, Capabilities, ModelId, available};
 use mxm_drum_machine_dsp::routing::{TARGET_NAMES, target};
-use mxm_ui::control::{Size, Wave};
+use mxm_ui::control::{self, ParamView, Size, Steps, Wave, Wheel};
 use mxm_ui::space::{MIN_TARGET, SPACE_2, SPACE_3, SPACE_5};
 use mxm_ui::theme::Tokens;
 use mxm_ui::tree::{
@@ -23,7 +27,8 @@ use nice_plug_egui::{EguiEditorState, NiceEguiApp, create_egui_editor};
 use self::binding::{
     Bound, selector as bound_selector, set_together, toggle_compact as bound_toggle_compact,
 };
-use crate::params::{MxmDrumMachineParams, SlotParams};
+use crate::params::{MxmDrumMachineParams, SlotParams, at, slot_ids};
+use crate::routes::{ROUTES, RouteParams, RouteTarget, SourceChoice};
 use crate::telemetry::Telemetry;
 
 pub use mxm_preset::PresetUi;
@@ -125,49 +130,6 @@ struct SoundPreview {
     low: [f32; PREVIEW_BINS],
     high: [f32; PREVIEW_BINS],
 }
-
-macro_rules! slot_ids {
-    ($base:literal) => {
-        [
-            concat!($base, "_1"),
-            concat!($base, "_2"),
-            concat!($base, "_3"),
-            concat!($base, "_4"),
-            concat!($base, "_5"),
-            concat!($base, "_6"),
-            concat!($base, "_7"),
-            concat!($base, "_8"),
-            concat!($base, "_9"),
-            concat!($base, "_10"),
-            concat!($base, "_11"),
-            concat!($base, "_12"),
-            concat!($base, "_13"),
-            concat!($base, "_14"),
-            concat!($base, "_15"),
-            concat!($base, "_16"),
-        ]
-    };
-}
-
-pub(crate) const MODEL_IDS: [&str; SLOT_COUNT] = slot_ids!("model");
-pub(crate) const PITCH_IDS: [&str; SLOT_COUNT] = slot_ids!("pitch");
-pub(crate) const PITCH_ENV_IDS: [&str; SLOT_COUNT] = slot_ids!("pitch_env");
-pub(crate) const PITCH_DECAY_IDS: [&str; SLOT_COUNT] = slot_ids!("pitch_decay");
-pub(crate) const DECAY_IDS: [&str; SLOT_COUNT] = slot_ids!("decay");
-pub(crate) const ATTACK_IDS: [&str; SLOT_COUNT] = slot_ids!("attack");
-pub(crate) const TONE_IDS: [&str; SLOT_COUNT] = slot_ids!("tone");
-pub(crate) const BODY_IDS: [&str; SLOT_COUNT] = slot_ids!("body");
-pub(crate) const NOISE_IDS: [&str; SLOT_COUNT] = slot_ids!("noise");
-pub(crate) const NOISE_DECAY_IDS: [&str; SLOT_COUNT] = slot_ids!("noise_decay");
-pub(crate) const CHARACTER_IDS: [&str; SLOT_COUNT] = slot_ids!("character");
-pub(crate) const DYNAMICS_IDS: [&str; SLOT_COUNT] = slot_ids!("dynamics");
-pub(crate) const LEVEL_IDS: [&str; SLOT_COUNT] = slot_ids!("level");
-pub(crate) const PAN_IDS: [&str; SLOT_COUNT] = slot_ids!("pan");
-pub(crate) const MUTE_IDS: [&str; SLOT_COUNT] = slot_ids!("mute");
-pub(crate) const SOLO_IDS: [&str; SLOT_COUNT] = slot_ids!("solo");
-pub(crate) const OUTPUT_IDS: [&str; SLOT_COUNT] = slot_ids!("output");
-pub(crate) const CHOKE_GROUP_IDS: [&str; SLOT_COUNT] = slot_ids!("choke_group");
-pub(crate) const MIDI_CHANNEL_IDS: [&str; SLOT_COUNT] = slot_ids!("midi_channel");
 
 const OUTPUT_OPTIONS: [&str; 17] = [
     "L+R", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
@@ -507,82 +469,79 @@ enum Axis {
 }
 
 impl Axis {
+    /// The general control it is, by number (`params::control`); `None` for Level and Pan.
+    fn control(self) -> Option<usize> {
+        use crate::params::control;
+        Some(match self {
+            Self::Tune => control::TUNE,
+            Self::Attack => control::ATTACK,
+            Self::Dynamics => control::DYNAMICS,
+            Self::Body => control::BODY,
+            Self::Noise => control::NOISE,
+            Self::Character => control::CHARACTER,
+            Self::Decay => control::DECAY,
+            Self::Tone => control::TONE,
+            Self::NoiseDecay => control::NOISE_DECAY,
+            Self::PitchEnv => control::PITCH_ENV,
+            Self::PitchDecay => control::PITCH_DECAY,
+            Self::Level | Self::Pan => return None,
+        })
+    }
+
+    /// What its knob is called on the panel: the name it had before the controls became general,
+    /// whatever the host calls the parameter. Snare noise reads *Snappy*.
+    fn name(self, p: &SlotParams) -> &'static str {
+        match self {
+            Self::Tune => "Tune",
+            Self::Attack => "Attack",
+            Self::Dynamics => "Dynamics",
+            Self::Body => "Body",
+            Self::Noise => noise_amount_label(p.model_id()),
+            Self::Character => "Character",
+            Self::Decay => "Decay",
+            Self::Tone => "Tone",
+            Self::NoiseDecay => "Noise decay",
+            Self::PitchEnv => "Pitch envelope",
+            Self::PitchDecay => "Pitch decay",
+            Self::Level => "Level",
+            Self::Pan => "Pan",
+        }
+    }
+
+    /// What it tells the player, on hover.
+    const fn help(self) -> &'static str {
+        match self {
+            Self::Tune => "Tunes this drum using its own pitch behaviour.",
+            Self::Attack => "Softens or emphasizes the start of the sound.",
+            Self::Dynamics => "Changes how strongly playing velocity affects this drum.",
+            Self::Body => "Changes the weight of the drum's tonal body.",
+            Self::Noise => "Balances the noise or snappy part of the sound.",
+            Self::Character => "Changes the drum's bite and colour.",
+            Self::Decay => "Shortens or lengthens the sound.",
+            Self::Tone => "Darkens or brightens the sound.",
+            Self::NoiseDecay => {
+                "Shortens or lengthens the noise part without changing the tonal body."
+            }
+            Self::PitchEnv => "Reduces or increases the drum's pitch movement.",
+            Self::PitchDecay => "Changes how quickly the moving pitch settles.",
+            Self::Level => "Volume of the selected slot.",
+            Self::Pan => "Stereo position; a slot on an output of its own ignores it.",
+        }
+    }
+
     /// The axis's parameter in `slot`, as its knob draws it.
     fn bound(self, params: &MxmDrumMachineParams, slot: usize) -> Bound<'_> {
         let p = &params.slots[slot];
+        let ids = slot_ids(slot);
         match self {
-            Self::Tune => Bound::new(
-                PITCH_IDS[slot],
-                &p.pitch,
-                "Tunes this drum using its own pitch behaviour.",
-            )
-            .labelled("Tune")
-            .bipolar(),
-            Self::Attack => Bound::new(
-                ATTACK_IDS[slot],
-                &p.attack,
-                "Softens or emphasizes the start of the sound.",
-            )
-            .bipolar(),
-            Self::Dynamics => Bound::new(
-                DYNAMICS_IDS[slot],
-                &p.dynamics,
-                "Changes how strongly playing velocity affects this drum.",
-            )
-            .bipolar(),
-            Self::Body => Bound::new(
-                BODY_IDS[slot],
-                &p.body,
-                "Changes the weight of the drum's tonal body.",
-            )
-            .bipolar(),
-            Self::Noise => Bound::new(
-                NOISE_IDS[slot],
-                &p.noise,
-                "Balances the noise or snappy part of the sound.",
-            )
-            .labelled(noise_amount_label(p.model_id()))
-            .bipolar(),
-            Self::Character => Bound::new(
-                CHARACTER_IDS[slot],
-                &p.character,
-                "Changes the drum's bite and colour.",
-            )
-            .bipolar(),
-            Self::Decay => Bound::new(
-                DECAY_IDS[slot],
-                &p.decay,
-                "Shortens or lengthens the sound.",
-            )
-            .bipolar(),
-            Self::Tone => {
-                Bound::new(TONE_IDS[slot], &p.tone, "Darkens or brightens the sound.").bipolar()
+            Self::Level => Bound::new(ids[at::LEVEL], &p.level, self.help()),
+            Self::Pan => Bound::new(ids[at::PAN], &p.pan, self.help()).bipolar(),
+            _ => {
+                let k = self.control().expect("a control axis");
+                Bound::new(ids[at::control(k)], p.controls.get(k), self.help())
+                    .labelled(self.name(p))
+                    .bipolar()
             }
-            Self::NoiseDecay => Bound::new(
-                NOISE_DECAY_IDS[slot],
-                &p.noise_decay,
-                "Shortens or lengthens the noise part without changing the tonal body.",
-            )
-            .bipolar(),
-            Self::PitchEnv => Bound::new(
-                PITCH_ENV_IDS[slot],
-                &p.pitch_env,
-                "Reduces or increases the drum's pitch movement.",
-            )
-            .bipolar(),
-            Self::PitchDecay => Bound::new(
-                PITCH_DECAY_IDS[slot],
-                &p.pitch_decay,
-                "Changes how quickly the moving pitch settles.",
-            )
-            .bipolar(),
-            Self::Level => Bound::new(LEVEL_IDS[slot], &p.level, "Volume of the selected slot."),
-            Self::Pan => Bound::new(
-                PAN_IDS[slot],
-                &p.pan,
-                "Stereo position; a slot on an output of its own ignores it.",
-            )
-            .bipolar(),
         }
     }
 
@@ -604,22 +563,26 @@ impl Axis {
         }
     }
 
-    /// The routing target its stack carries.
-    fn target(self) -> usize {
+    /// What its route rows carry.
+    fn target(self) -> RouteTarget {
         match self {
-            Self::Tune => target::PITCH,
-            Self::Attack => target::ATTACK,
-            Self::Dynamics => target::DYNAMICS,
-            Self::Body => target::BODY,
-            Self::Noise => target::NOISE,
-            Self::Character => target::CHARACTER,
-            Self::Decay => target::DECAY,
-            Self::Tone => target::TONE,
-            Self::NoiseDecay => target::NOISE_DECAY,
-            Self::PitchEnv => target::PITCH_ENV,
-            Self::PitchDecay => target::PITCH_DECAY,
-            Self::Level => target::LEVEL,
-            Self::Pan => target::PAN,
+            Self::Level => RouteTarget::Level,
+            Self::Pan => RouteTarget::Pan,
+            _ => RouteTarget::Control(self.control().expect("a control axis") as u8),
+        }
+    }
+
+    /// What its route rows are named for: the DSP's target name (Level's routes move *Amplitude*,
+    /// the collection's standard target), except that Tune's read *Tune*, as its knob does, never
+    /// *Pitch*.
+    fn routed_name(self) -> &'static str {
+        match self
+            .target()
+            .dsp()
+            .expect("every axis is one of the DSP's targets")
+        {
+            target::PITCH => "Tune",
+            target => TARGET_NAMES[target],
         }
     }
 }
@@ -639,9 +602,9 @@ enum Leaf {
     /// another slot, as it did when the card drew it directly.
     Model,
     Mechanism(usize),
-    /// An axis's knob and its route stack, by slot.
+    /// An axis's knob and its routes, by slot.
     Knob(usize, Axis),
-    Routes(usize, usize),
+    Routes(usize, Axis),
     Output(usize),
     KitOutputs,
     ChokeGroup(usize),
@@ -822,8 +785,8 @@ fn knob_row(
     )
 }
 
-/// An axis's route stack. A stack is a composite with a rule of its own — its floor is every route
-/// revealed — so it states its size (`stack_size`) and fills the card's width.
+/// An axis's routes. A composite with a rule of its own — its floor is every source a row could
+/// show — so it states its size ([`stack_size`]) and fills the card's width.
 fn routes_leaf(
     ui: &Ui,
     params: &MxmDrumMachineParams,
@@ -831,14 +794,9 @@ fn routes_leaf(
     axis: Axis,
     capabilities: &Capabilities,
 ) -> Node<Leaf> {
-    let target = axis.target();
-    let size = mxm_modulation_params::ui::stack_size(
-        ui,
-        panel_name(target),
-        &params.slots[slot].routes.target(slot, target),
-    );
+    let size = stack_size(ui, axis.routed_name(), &params.slots[slot], axis.target());
     let stack = leaf(
-        Leaf::Routes(slot, target),
+        Leaf::Routes(slot, axis),
         Kind::Custom {
             min_width: size.x,
             height: Height::Fixed(size.y),
@@ -1021,13 +979,19 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
             rect.width(),
             live.entries,
         ),
-        Leaf::Routes(slot, target) => {
-            route_stack(ui, tokens, params, slot, target, setter, live.entries);
-        }
+        Leaf::Routes(slot, axis) => route_stack(
+            ui,
+            tokens,
+            &params.slots[slot],
+            slot,
+            axis,
+            setter,
+            live.entries,
+        ),
         Leaf::Output(slot) => bound_selector(
             ui,
             tokens,
-            OUTPUT_IDS[slot],
+            slot_ids(slot)[at::OUTPUT],
             &params.slots[slot].output,
             &OUTPUT_OPTIONS,
             None,
@@ -1038,7 +1002,7 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
         Leaf::ChokeGroup(slot) => bound_selector(
             ui,
             tokens,
-            CHOKE_GROUP_IDS[slot],
+            slot_ids(slot)[at::CHOKE_GROUP],
             &params.slots[slot].choke_group,
             &CHOKE_GROUP_OPTIONS,
             None,
@@ -1048,7 +1012,7 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
         Leaf::MidiChannel(slot) => bound_selector(
             ui,
             tokens,
-            MIDI_CHANNEL_IDS[slot],
+            slot_ids(slot)[at::MIDI_CHANNEL],
             &params.slots[slot].midi_channel,
             &MIDI_CHANNEL_OPTIONS,
             None,
@@ -1119,7 +1083,7 @@ fn slot_row(
                     bound_toggle_compact(
                         ui,
                         tokens,
-                        MUTE_IDS[index],
+                        slot_ids(index)[at::MUTE],
                         "M",
                         &slot.mute,
                         "Silence this slot without cutting off the drum's motion.",
@@ -1128,7 +1092,7 @@ fn slot_row(
                     bound_toggle_compact(
                         ui,
                         tokens,
-                        SOLO_IDS[index],
+                        slot_ids(index)[at::SOLO],
                         "S",
                         &slot.solo,
                         "Hear this slot on its own and select it for editing.",
@@ -1262,37 +1226,277 @@ fn lfo(params: &MxmDrumMachineParams, index: usize) -> Lfo<'_> {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Routes: four slots a drum (mxm-model-drums' scheme), shown as rows under the knob each moves. The
+// rows are derived from parameter values alone, so a preset decides the panel. The collection's
+// route stack (`mxm_modulation_params::ui`) draws one fixed pair per source; a route here is a slot
+// any source and target can take, so this draws the same rows over its own parameters, as
+// model-drums' editor does.
+// ---------------------------------------------------------------------------------------------
+
+/// The route slots, 0-based, that move `target`: aimed at it with a source on.
+fn routes_on(p: &SlotParams, target: RouteTarget) -> Vec<usize> {
+    let all = p.routes.all();
+    (0..ROUTES)
+        .filter(|&r| all[r].source.value() != SourceChoice::Off && all[r].target() == target)
+        .collect()
+}
+
+/// The route slot adding a source to `target` takes: a free one already aimed at it first (a
+/// source removed from this knob, so adding one back keeps its depth), else the first free one. A
+/// slot is free when its source or its target is Off.
+fn free_route(p: &SlotParams, target: RouteTarget) -> Option<usize> {
+    let all = p.routes.all();
+    let free = |r: usize| !all[r].in_use();
+    (0..ROUTES)
+        .find(|&r| free(r) && all[r].target() == target)
+        .or_else(|| (0..ROUTES).find(|&r| free(r)))
+}
+
+/// The sources the add menu offers on `target`: those not already moving it, while a slot is free.
+fn offered(p: &SlotParams, target: RouteTarget) -> Vec<SourceChoice> {
+    if free_route(p, target).is_none() {
+        return Vec::new();
+    }
+    let all = p.routes.all();
+    let on: Vec<SourceChoice> = routes_on(p, target)
+        .into_iter()
+        .map(|r| all[r].source.value())
+        .collect();
+    SourceChoice::ALL
+        .into_iter()
+        .filter(|s| !on.contains(s))
+        .collect()
+}
+
+/// Adds `source` to `target` in one gesture: the free slot's source and target, and its amount to
+/// zero unless the slot already aimed there.
+fn add_route(p: &SlotParams, target: RouteTarget, source: SourceChoice, setter: &ParamSetter<'_>) {
+    let Some(r) = free_route(p, target) else {
+        return;
+    };
+    let route = p.routes.all()[r];
+    let mut edits: Vec<(&dyn binding::ErasedParam, f32)> = vec![
+        (&route.source, route.source.preview_normalized(source)),
+        (
+            &route.target,
+            route.target.preview_normalized(target.index() as i32),
+        ),
+    ];
+    if route.target() != target {
+        edits.push((&route.amount, route.amount.preview_normalized(0.0)));
+    }
+    set_together(setter, &edits);
+}
+
+/// What [`route_stack`] occupies, without drawing it: at its narrowest the widest row any source
+/// could draw, or the target's line; its height as the patch stands. The collection's own stack's
+/// rule (`mxm_modulation_params::ui::stack_size`), over this plugin's route slots.
+fn stack_size(ui: &Ui, panel: &str, p: &SlotParams, target: RouteTarget) -> egui::Vec2 {
+    let spacing = ui.spacing().item_spacing;
+    let inset = 2.0 * mxm_ui::tree::GROUP_INSET;
+    let amount: &dyn binding::ErasedParam = &p.routes.route1.amount;
+    let widest = control::widest_value(|n| amount.format(n as f32));
+    let row = |source: SourceChoice| {
+        let slider = control::slider_size(ui, source.name(), true, &widest);
+        egui::Vec2::new(
+            slider.x.max(mxm_modulation_params::ui::TRACK_MIN) + spacing.x + control::REMOVE_SIZE,
+            slider.y.max(control::REMOVE_SIZE),
+        )
+    };
+    let line = control::selector_size(ui, panel, &["modulate"]);
+    let widest_row = SourceChoice::ALL
+        .iter()
+        .map(|s| row(*s).x)
+        .fold(0.0, f32::max);
+    let width = (widest_row.max(line.x) + inset).max(line.x);
+    let all = p.routes.all();
+    let rows: Vec<f32> = routes_on(p, target)
+        .into_iter()
+        .map(|r| row(all[r].source.value()).y)
+        .collect();
+    let height = if !rows.is_empty() {
+        inset + line.y + SPACE_2 + rows.iter().sum::<f32>() + SPACE_2 * (rows.len() - 1) as f32
+    } else if !offered(p, target).is_empty() {
+        line.y
+    } else {
+        0.0
+    };
+    egui::Vec2::new(width, height)
+}
+
+/// One knob's routes: its line offering `‹ modulate ›`, and a row for each route that moves it.
 fn route_stack(
     ui: &mut Ui,
     tokens: &Tokens,
-    params: &MxmDrumMachineParams,
+    p: &SlotParams,
     slot: usize,
-    target: usize,
+    axis: Axis,
     setter: &ParamSetter<'_>,
     entries: &mut HashMap<&'static str, Option<String>>,
 ) {
-    let routes = params.slots[slot].routes.target(slot, target);
-    let entry = entries
-        .entry(crate::routes::ROUTE_IDS[slot][target][0].0)
-        .or_default();
-    mxm_modulation_params::ui::stack(
-        ui,
-        tokens,
-        TARGET_NAMES[target],
-        panel_name(target),
-        &routes,
-        entry,
-        setter,
-    );
+    let target = axis.target();
+    let on = routes_on(p, target);
+    let offered = offered(p, target);
+    if !on.is_empty() {
+        mxm_ui::shell::group(ui, tokens, |ui| {
+            target_line(ui, tokens, p, axis, &offered, setter);
+            for r in on {
+                route_row(ui, tokens, p, slot, r, axis, setter, entries);
+            }
+        });
+    } else if !offered.is_empty() {
+        target_line(ui, tokens, p, axis, &offered, setter);
+    }
 }
 
-/// A target's **painted** name: the knob's own above it, so a stack never reads *Pitch* under a
-/// knob reading *Tune*. `TARGET_NAMES` stays the canonical name the parameters and the host read.
-fn panel_name(target: usize) -> &'static str {
-    if target == target::PITCH {
-        "Tune"
-    } else {
-        TARGET_NAMES[target]
+/// The knob's line: its routes' name, and `‹ modulate ›` offering the sources it can still take.
+fn target_line(
+    ui: &mut Ui,
+    tokens: &Tokens,
+    p: &SlotParams,
+    axis: Axis,
+    offered: &[SourceChoice],
+    setter: &ParamSetter<'_>,
+) {
+    let name = axis.routed_name();
+    if offered.is_empty() {
+        ui.horizontal(|ui| {
+            ui.set_min_height(MIN_TARGET);
+            ui.label(egui::RichText::new(name).color(tokens.text_primary));
+        });
+        return;
+    }
+    let labels: Vec<&str> = std::iter::once("modulate")
+        .chain(offered.iter().map(|s| s.name()))
+        .collect();
+    let mut chosen = 0usize;
+    let description = format!("Add a modulation source to {name}");
+    let changed = control::selector(
+        ui,
+        tokens,
+        name,
+        &labels,
+        &mut chosen,
+        None,
+        Some(0),
+        &description,
+    );
+    if changed && chosen > 0 {
+        add_route(p, axis.target(), offered[chosen - 1], setter);
+    }
+}
+
+/// One route: its amount, painted as its source and named in full, with a remove beside it that
+/// switches the source off — one write, the depth kept.
+#[allow(clippy::too_many_arguments)]
+fn route_row(
+    ui: &mut Ui,
+    tokens: &Tokens,
+    p: &SlotParams,
+    slot: usize,
+    r: usize,
+    axis: Axis,
+    setter: &ParamSetter<'_>,
+    entries: &mut HashMap<&'static str, Option<String>>,
+) {
+    let route: &RouteParams = p.routes.all()[r];
+    let ids = slot_ids(slot);
+    let source = route.source.value().name();
+    let target = axis.routed_name();
+    let amount: &dyn binding::ErasedParam = &route.amount;
+    let name = format!("{target} from {source}");
+    let text = amount.text();
+    let description =
+        format!("How much {source} moves {target}. Signed: below the centre inverts it.");
+    let (fine_up, fine_down, coarse_up, coarse_down) = amount.stepping();
+    let view = ParamView {
+        name: &name,
+        label: source,
+        text: &text,
+        widest: "",
+        description: &description,
+        default: f64::from(amount.default_normalised()),
+        bipolar: true,
+        read_only: false,
+        modulation: f64::from(amount.modulation()),
+        marked: amount.modulation() != 0.0,
+        steps: Steps {
+            fine_up,
+            fine_down,
+            coarse_up,
+            coarse_down,
+        },
+        next: None,
+        quiet_label: true,
+    };
+    let mut normalised = f64::from(amount.normalised());
+    let entry = entries.entry(ids[at::amount(r)]).or_default();
+    let mut removed = false;
+    let outcome = ui
+        .horizontal(|ui| {
+            // The remove's width is reserved before the slider takes the rest.
+            let gap = ui.spacing().item_spacing.x;
+            let track = (ui.available_width() - control::REMOVE_SIZE - gap)
+                .max(mxm_modulation_params::ui::TRACK_MIN);
+            let out = ui
+                .scope(|ui| {
+                    ui.set_max_width(track);
+                    mxm_ui::navigation::at(ui, ids[at::amount(r)], |ui| {
+                        control::slider(
+                            ui,
+                            tokens,
+                            &view,
+                            &mut normalised,
+                            track,
+                            entry,
+                            Wheel::FocusOrModifier,
+                        )
+                    })
+                })
+                .inner;
+            // Bottom-aligned onto the slider's track, as the collection's route rows are.
+            let height = ui.min_rect().height().max(control::REMOVE_SIZE);
+            ui.allocate_ui_with_layout(
+                egui::Vec2::new(control::REMOVE_SIZE, height),
+                egui::Layout::bottom_up(egui::Align::Center),
+                |ui| {
+                    mxm_ui::navigation::at(ui, ids[at::source(r)], |ui| {
+                        if control::remove_mark(
+                            ui,
+                            tokens,
+                            control::REMOVE_SIZE,
+                            true,
+                            &format!("Remove {source} from {target}"),
+                            binding::ErasedParam::modulation(&route.source) != 0.0,
+                            "The depth stays, so adding the source back restores it.",
+                        ) {
+                            set_together(
+                                setter,
+                                &[(
+                                    &route.source as &dyn binding::ErasedParam,
+                                    route.source.preview_normalized(SourceChoice::Off),
+                                )],
+                            );
+                            removed = true;
+                        }
+                    });
+                },
+            );
+            out
+        })
+        .inner;
+    if removed {
+        return;
+    }
+    if outcome.gesture_started {
+        amount.begin(setter);
+    }
+    if outcome.changed {
+        amount.set(setter, normalised as f32);
+    }
+    if outcome.gesture_ended {
+        amount.end(setter);
     }
 }
 
@@ -1403,7 +1607,7 @@ fn mapped_model_selector(
         .iter()
         .position(|spec| i32::from(spec.id.raw()) == slot_params.model.default_plain_value())
         .unwrap_or(0);
-    let changed = mxm_ui::navigation::at(ui, MODEL_IDS[slot], |ui| {
+    let changed = mxm_ui::navigation::at(ui, slot_ids(slot)[at::MODEL], |ui| {
         mxm_ui::control::selector_grouped(
             ui,
             tokens,
@@ -1503,19 +1707,21 @@ fn mechanism_display(ui: &mut Ui, tokens: &Tokens, params: &SlotParams) {
 }
 
 fn preview_patch(params: &SlotParams) -> SlotPatch {
+    use crate::params::control;
+    let read = |k: usize| quantize_preview(params.controls.get(k).value());
     SlotPatch {
         model: params.model_id(),
-        pitch_semitones: quantize_preview(params.pitch.value()),
-        pitch_envelope: quantize_preview(params.pitch_env.value()),
-        pitch_decay: quantize_preview(params.pitch_decay.value()),
-        decay: quantize_preview(params.decay.value()),
-        attack: quantize_preview(params.attack.value()),
-        tone: quantize_preview(params.tone.value()),
-        body: quantize_preview(params.body.value()),
-        noise: quantize_preview(params.noise.value()),
-        noise_decay: quantize_preview(params.noise_decay.value()),
-        character: quantize_preview(params.character.value()),
-        dynamics: quantize_preview(params.dynamics.value()),
+        pitch_semitones: read(control::TUNE),
+        pitch_envelope: read(control::PITCH_ENV),
+        pitch_decay: read(control::PITCH_DECAY),
+        decay: read(control::DECAY),
+        attack: read(control::ATTACK),
+        tone: read(control::TONE),
+        body: read(control::BODY),
+        noise: read(control::NOISE),
+        noise_decay: read(control::NOISE_DECAY),
+        character: read(control::CHARACTER),
+        dynamics: read(control::DYNAMICS),
         level: 1.0,
         pan: 0.0,
         // A preview renders one slot alone, so nothing can choke it.
@@ -2402,13 +2608,11 @@ mod tests {
 
     /// The cursor must reach every **slot**, not merely register nothing unexpected. This editor
     /// paints one slot at a time, so a single session only ever sees slot 1: a missing
-    /// `navigation::at` scope on slots 2–16 is invisible to it. Each parameter-local route stack
-    /// is painted with the card that owns its target, so walking all cards for every slot covers
-    /// both axes of the per-slot matrix.
+    /// `navigation::at` scope on slots 2–16 is invisible to it. Each knob's routes are painted with
+    /// the card that owns the knob, so walking all cards for every slot covers every route.
     ///
-    /// `mxm_modulation_params::ui::stack` paints a row only for a route that is present, and Init
-    /// has none. Presenting the complete matrix below makes every amount and presence control part
-    /// of this accessibility check.
+    /// A route row is painted only for a route in use, and Init has none: every slot's four routes
+    /// are put to work below, so each one's amount and remove are part of this check.
     #[test]
     fn the_keyboard_cursor_reaches_every_slot_and_every_route() {
         let params = MxmDrumMachineParams::default();
@@ -2416,9 +2620,6 @@ mod tests {
         let recorder = Arc::new(keyboard_checks::Recorder::default());
         let setter = ParamSetter::new(recorder.as_ref());
         let items = test_items();
-        // `mxm_modulation_params::ui::stack` paints a row only for a route that is present, so an
-        // editor with Init's empty grid cannot show — or register — a single route cell. Present
-        // them all, or this check silently excuses the 108 controls it most needs to see.
         present_every_route(&params);
 
         let walk = |slot: usize, found: &mut std::collections::HashSet<String>| {
@@ -2455,25 +2656,123 @@ mod tests {
         );
     }
 
-    /// Turns on every route in every slot, so each one's amount and presence controls are painted.
-    fn present_every_route(params: &MxmDrumMachineParams) {
-        for slot in &params.slots {
-            slot.routes.set_all_present_for_test();
+    /// Sets route `r` of `slot` to `source` on `target` at `amount`.
+    fn route(
+        params: &MxmDrumMachineParams,
+        slot: usize,
+        r: usize,
+        source: SourceChoice,
+        target: RouteTarget,
+        amount: f32,
+    ) {
+        use nice_plug::params::InternalParamMut;
+        let route = params.slots[slot].routes.all()[r];
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
+        unsafe {
+            route.source._internal_set_plain_value(source);
+            route
+                .target
+                ._internal_set_plain_value(target.index() as i32);
+            route.amount._internal_set_plain_value(amount);
         }
     }
 
-    /// Every id the editor may register from the keyboard: this plugin's own parameters, plus the
-    /// kit-wide output row, which carries a cursor scope without storing anything of its own and
-    /// writes the sixteen `output_*` settings.
+    /// Every slot's four routes on four knobs of four cards — Tune, Body, Decay, Level — at full
+    /// negative depth, the widest reading a row shows, so every route control is painted.
+    fn present_every_route(params: &MxmDrumMachineParams) {
+        let knobs = [Axis::Tune, Axis::Body, Axis::Decay, Axis::Level];
+        for slot in 0..SLOT_COUNT {
+            for (r, axis) in knobs.into_iter().enumerate() {
+                route(params, slot, r, SourceChoice::ALL[r], axis.target(), -1.0);
+            }
+        }
+    }
+
+    /// Every id the editor may register from the keyboard: this plugin's parameters but the ones no
+    /// control draws — a route's target, which is the knob its row sits under and is written by
+    /// adding the route, and controls 12–20, which no model of this machine uses — plus the kit-wide
+    /// output row, which carries a cursor scope without storing anything of its own and writes the
+    /// sixteen `output_*` settings.
     fn keyboard_reachable_ids(params: &MxmDrumMachineParams) -> Vec<String> {
         use mxm_preset::Instrument;
+        let unused: Vec<String> = (crate::params::control::USED + 1..=crate::params::CONTROLS)
+            .map(|k| format!("c{k:02}_"))
+            .collect();
+        let hidden = |id: &str| {
+            id.starts_with("route") && id.contains("_target_")
+                || unused.iter().any(|c| id.starts_with(c.as_str()))
+        };
         let mut ids: Vec<String> = params
             .parameters()
             .into_iter()
-            .map(|(id, _)| id.to_owned())
+            .map(|(id, _)| id)
+            .filter(|id| !hidden(id))
+            .map(str::to_owned)
             .collect();
         ids.push(KIT_OUTPUTS_ID.to_owned());
         ids
+    }
+
+    /// Adding a source to a knob takes the first free route in one bracketed gesture — its source,
+    /// its target and its depth at zero — and a knob that already had the slot keeps its depth.
+    #[test]
+    fn adding_a_route_takes_the_first_free_slot_in_one_gesture() {
+        use nice_plug::params::InternalParamMut;
+        let params = MxmDrumMachineParams::default();
+        // Route 1 busy on Level; routes 2–4 free.
+        route(&params, 0, 0, SourceChoice::Lfo1, RouteTarget::Level, 0.5);
+        let p = &params.slots[0];
+        // A leftover depth in route 2, aimed elsewhere, is not inherited.
+        // SAFETY: exclusive test ownership.
+        unsafe { p.routes.route2.amount._internal_set_plain_value(0.7) };
+        let host = RecordingHost::default();
+        let setter = ParamSetter::new(&host);
+        let tune = Axis::Tune.target();
+        add_route(p, tune, SourceChoice::Wheel, &setter);
+        assert_eq!(p.routes.route2.source.value(), SourceChoice::Wheel);
+        assert_eq!(p.routes.route2.target(), tune);
+        assert_eq!(p.routes.route2.amount.value(), 0.0);
+        assert_eq!(routes_on(p, tune), vec![1]);
+        let calls = host.calls();
+        let phase = |call: Call| match call {
+            Call::Begin => 0,
+            Call::Set => 1,
+            Call::End => 2,
+        };
+        assert_eq!(calls.len(), 9, "three writes, each bracketed: {calls:?}");
+        assert!(calls.windows(2).all(|w| phase(w[0].0) <= phase(w[1].0)));
+
+        // Removed and added back, the route keeps its depth.
+        // SAFETY: as above.
+        unsafe {
+            p.routes.route2.amount._internal_set_plain_value(-0.4);
+            p.routes
+                .route2
+                .source
+                ._internal_set_plain_value(SourceChoice::Off);
+        }
+        assert!(routes_on(p, tune).is_empty());
+        add_route(p, tune, SourceChoice::Lfo2, &setter);
+        assert_eq!(p.routes.route2.amount.value(), -0.4);
+        assert_eq!(p.routes.route2.source.value(), SourceChoice::Lfo2);
+    }
+
+    /// With every slot taken, nothing more is offered anywhere; a knob's own sources are never
+    /// offered twice.
+    #[test]
+    fn a_knob_offers_what_it_can_still_take() {
+        let params = MxmDrumMachineParams::default();
+        let p = &params.slots[0];
+        let (tune, decay) = (Axis::Tune.target(), Axis::Decay.target());
+        assert_eq!(offered(p, tune).len(), SourceChoice::ALL.len());
+        route(&params, 0, 0, SourceChoice::Lfo1, tune, 0.2);
+        assert!(!offered(p, tune).contains(&SourceChoice::Lfo1));
+        assert!(offered(p, decay).contains(&SourceChoice::Lfo1));
+        for (r, source) in SourceChoice::ALL.iter().enumerate().take(ROUTES).skip(1) {
+            route(&params, 0, r, *source, RouteTarget::Pan, 0.2);
+        }
+        assert!(offered(p, decay).is_empty());
+        assert!(free_route(p, decay).is_none());
     }
 
     fn measured_slot_frame(selected: bool) -> egui::Vec2 {
@@ -2633,7 +2932,7 @@ mod tests {
                 };
                 assert_eq!(KitOutputs::of(&params), kit);
                 for ((id, was), (_, param)) in before.iter().zip(params.parameters()) {
-                    if !OUTPUT_IDS.contains(id) {
+                    if !id.starts_with("output_") {
                         assert_eq!(param.normalised(), *was, "{id} moved");
                     }
                 }
@@ -2849,10 +3148,10 @@ mod tests {
 
     /// Every card, in every state that changes what it holds, passes the layout tree's checks.
     ///
-    /// This editor's structural-state matrix: Init; every route revealed at full negative depth,
-    /// where a reading carries its sign and every digit — the widest text a row can show; Resample
-    /// engaged, which disables every axis but Tune and Decay; every LFO synced, reading musical
-    /// divisions; the last slot selected; and every model's cards
+    /// This editor's structural-state matrix: Init; every route slot in use at full negative depth,
+    /// where a reading carries its sign and every digit — the widest text a row can show — and all
+    /// four on one knob; Resample engaged, which disables every axis but Tune and Decay; every LFO
+    /// synced, reading musical divisions; the last slot selected; and every model's cards
     /// (`every_models_cards_pass_the_tree_checks`). Slot activity is forced on.
     #[test]
     fn every_card_passes_the_tree_checks_in_every_state() {
@@ -2862,16 +3161,13 @@ mod tests {
 
         let revealed = MxmDrumMachineParams::default();
         present_every_route(&revealed);
-        let host = RecordingHost::default();
-        let setter = ParamSetter::new(&host);
-        for (slot, params) in revealed.slots.iter().enumerate() {
-            for target in 0..mxm_drum_machine_dsp::routing::TARGETS {
-                for route in &params.routes.target(slot, target) {
-                    route.amount.set(&setter, 0.0);
-                }
-            }
+        check_cards("every route present", &revealed, 0, &every);
+
+        let stacked = MxmDrumMachineParams::default();
+        for (r, source) in SourceChoice::ALL.iter().take(ROUTES).enumerate() {
+            route(&stacked, 0, r, *source, Axis::Tune.target(), -1.0);
         }
-        check_cards("every route revealed", &revealed, 0, &every);
+        check_cards("four routes on Tune", &stacked, 0, &[4]);
 
         let frozen = MxmDrumMachineParams::default();
         // SAFETY: exclusive test ownership; no process or GUI thread exists.

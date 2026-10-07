@@ -39,7 +39,9 @@ mxm-plugin-test.workspace = true
 # the bundle.
 egui_kittest = { version = "=0.36.1", features = ["wgpu"] }
 image = { version = "=0.25.9", default-features = false, features = ["png"] }
-# The modulation standard's checks (`mxm_plugin_test::routing_checks`): the route parameters are
-# held to the DSP's own declaration. Test-only features, so the bundle carries neither.
+# The modulation standard's declaration (`mxm_drum_machine_dsp::conformance::Declared`): a route
+# slot's amount is held to every pair's offer (`routes.rs`). It held each pair's own parameter
+# through `mxm_plugin_test::routing_checks` until 2026-10-07, when the routes became four slots a
+# drum. Test-only features, so the bundle carries neither.
 mxm-modulation = { workspace = true, features = ["conformance"] }
 mxm-drum-machine-dsp = { workspace = true, features = ["conformance"] }
