@@ -1,9 +1,10 @@
-//! Collection preset integration and the source-family audition sets.
+//! Collection preset integration, the source-family audition sets and the fifty creative kits.
 //!
-//! Each factory set puts models from exactly one source machine into canonical role slots and mutes
+//! Each audition set puts models from exactly one source machine into canonical role slots and mutes
 //! absent roles. Preset names use recognisable numeric source tokens without manufacturer names;
 //! the exact mapping is documented in this plugin's README and proved against the permanent model-ID
-//! ranges below.
+//! ranges below. The fifty creative kits follow on the same role map; their design, generator and
+//! checks are `creative.rs`.
 
 use std::sync::RwLock;
 
@@ -62,6 +63,11 @@ impl Instrument for MxmDrumMachineParams {
     }
 }
 
+/// The audition kits lead the factory list; the creative kits follow them.
+pub const AUDITION_KITS: usize = 9;
+
+/// Every factory kit, compiled in: the nine audition kits in the selector's family order, then
+/// the fifty creative kits in `creative.rs`'s order.
 pub const FACTORY_FILES: &[(&str, &str)] = &[
     ("Bridge 808", include_str!("../presets/bridge-808.json")),
     ("Reset 909", include_str!("../presets/reset-909.json")),
@@ -75,7 +81,165 @@ pub const FACTORY_FILES: &[(&str, &str)] = &[
     ("Classic 78", include_str!("../presets/classic-78.json")),
     ("Discrete 66", include_str!("../presets/discrete-66.json")),
     ("Early 2L", include_str!("../presets/early-2l.json")),
+    ("Bridge Boom", include_str!("../presets/bridge-boom.json")),
+    ("Bridge Tight", include_str!("../presets/bridge-tight.json")),
+    ("Reset Club", include_str!("../presets/reset-club.json")),
+    ("Reset Ride", include_str!("../presets/reset-ride.json")),
+    (
+        "Expanded Studio",
+        include_str!("../presets/expanded-studio.json"),
+    ),
+    (
+        "Classic Parlour",
+        include_str!("../presets/classic-parlour.json"),
+    ),
+    (
+        "Discrete Lounge",
+        include_str!("../presets/discrete-lounge.json"),
+    ),
+    (
+        "Early Organ-Top",
+        include_str!("../presets/early-organ-top.json"),
+    ),
+    (
+        "Compact Battery",
+        include_str!("../presets/compact-battery.json"),
+    ),
+    ("Snap Pocket", include_str!("../presets/snap-pocket.json")),
+    (
+        "Heavy Bottom, Bright Top",
+        include_str!("../presets/heavy-bottom-bright-top.json"),
+    ),
+    (
+        "Reset Low, Bridge High",
+        include_str!("../presets/reset-low-bridge-high.json"),
+    ),
+    (
+        "Rhythm Box Mixtape",
+        include_str!("../presets/rhythm-box-mixtape.json"),
+    ),
+    ("One of Each", include_str!("../presets/one-of-each.json")),
+    ("Bridged Pair", include_str!("../presets/bridged-pair.json")),
+    (
+        "Lo-Fi Tops, Wooden Floor",
+        include_str!("../presets/lo-fi-tops-wooden-floor.json"),
+    ),
+    (
+        "Hand Percussion Machines",
+        include_str!("../presets/hand-percussion-machines.json"),
+    ),
+    (
+        "Snappy Hybrid",
+        include_str!("../presets/snappy-hybrid.json"),
+    ),
+    (
+        "Pentatonic Toms",
+        include_str!("../presets/pentatonic-toms.json"),
+    ),
+    ("Diode Choir", include_str!("../presets/diode-choir.json")),
+    (
+        "Syn-Tom Sweeps",
+        include_str!("../presets/syn-tom-sweeps.json"),
+    ),
+    (
+        "Woodshop Marimba",
+        include_str!("../presets/woodshop-marimba.json"),
+    ),
+    (
+        "Talking Congas",
+        include_str!("../presets/talking-congas.json"),
+    ),
+    (
+        "Six-Square Foundry",
+        include_str!("../presets/six-square-foundry.json"),
+    ),
+    (
+        "Cowbell Chord",
+        include_str!("../presets/cowbell-chord.json"),
+    ),
+    (
+        "Rust and Chrome",
+        include_str!("../presets/rust-and-chrome.json"),
+    ),
+    (
+        "Clockwork Hats",
+        include_str!("../presets/clockwork-hats.json"),
+    ),
+    (
+        "Noise Cymbal Wash",
+        include_str!("../presets/noise-cymbal-wash.json"),
+    ),
+    (
+        "Four-Voice Economy",
+        include_str!("../presets/four-voice-economy.json"),
+    ),
+    ("Pocket Pair", include_str!("../presets/pocket-pair.json")),
+    (
+        "Thrift Store Drive",
+        include_str!("../presets/thrift-store-drive.json"),
+    ),
+    (
+        "Six-Bit Budget",
+        include_str!("../presets/six-bit-budget.json"),
+    ),
+    ("Toy Box", include_str!("../presets/toy-box.json")),
+    (
+        "Warehouse Pulse",
+        include_str!("../presets/warehouse-pulse.json"),
+    ),
+    (
+        "Electro Breaks",
+        include_str!("../presets/electro-breaks.json"),
+    ),
+    (
+        "Minimal Clicks",
+        include_str!("../presets/minimal-clicks.json"),
+    ),
+    ("Trap Boom", include_str!("../presets/trap-boom.json")),
+    (
+        "House Shuffle",
+        include_str!("../presets/house-shuffle.json"),
+    ),
+    (
+        "Big Snare Eighties",
+        include_str!("../presets/big-snare-eighties.json"),
+    ),
+    (
+        "Rising Sweeps",
+        include_str!("../presets/rising-sweeps.json"),
+    ),
+    (
+        "Overdriven Wreck",
+        include_str!("../presets/overdriven-wreck.json"),
+    ),
+    ("LFO Drift", include_str!("../presets/lfo-drift.json")),
+    ("Glacial", include_str!("../presets/glacial.json")),
+    ("Hat Ladder", include_str!("../presets/hat-ladder.json")),
+    ("Cross-Cut", include_str!("../presets/cross-cut.json")),
+    (
+        "Shared Noise Section",
+        include_str!("../presets/shared-noise-section.json"),
+    ),
+    (
+        "Gentle Hybrid",
+        include_str!("../presets/gentle-hybrid.json"),
+    ),
+    (
+        "Hybrid Unhinged",
+        include_str!("../presets/hybrid-unhinged.json"),
+    ),
+    (
+        "Rhythm Box Polish",
+        include_str!("../presets/rhythm-box-polish.json"),
+    ),
+    (
+        "Rhythm Box Meltdown",
+        include_str!("../presets/rhythm-box-meltdown.json"),
+    ),
 ];
+
+#[cfg(test)]
+mod creative;
 
 #[cfg(test)]
 mod tests {
@@ -201,9 +365,9 @@ mod tests {
     #[test]
     fn factory_files_match_the_machine_family_designs() {
         let params = MxmDrumMachineParams::default();
-        assert_eq!(FACTORY_FILES.len(), DESIGNS.len());
+        assert_eq!(AUDITION_KITS, DESIGNS.len());
         for design in DESIGNS {
-            let (_, text) = FACTORY_FILES
+            let (_, text) = FACTORY_FILES[..AUDITION_KITS]
                 .iter()
                 .find(|(name, _)| *name == design.name)
                 .unwrap_or_else(|| panic!("missing {:?}", design.name));
@@ -237,6 +401,20 @@ mod tests {
         }
     }
 
+    /// **The audition kits stay ungrouped** (the owner, 2026-10-07): only the creative kits choke,
+    /// as a real kit would (`creative.rs`). The nine are diagnostic, one machine each, and a choke
+    /// would hide what a hit does.
+    #[test]
+    fn the_audition_kits_ship_ungrouped() {
+        for (name, text) in &FACTORY_FILES[..AUDITION_KITS] {
+            let preset = Preset::parse(text, crate::CLAP_ID).expect("factory preset parses");
+            for slot in 0..16 {
+                let group = &preset.params[slot_ids(slot)[at::CHOKE_GROUP]];
+                assert_eq!(group.text, "Off", "{name} groups slot {}", slot + 1);
+            }
+        }
+    }
+
     #[test]
     fn each_machine_family_is_whole_exclusive_and_every_model_appears_once() {
         let mut seen = [false; 95];
@@ -266,17 +444,26 @@ mod tests {
                 groups.push(spec.group);
             }
         }
-        let presets: Vec<_> = FACTORY_FILES.iter().map(|(name, _)| *name).collect();
+        let presets: Vec<_> = FACTORY_FILES[..AUDITION_KITS]
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
         assert_eq!(presets, groups);
     }
 
     #[test]
     fn every_factory_preset_is_complete_categorised_and_listed_after_init() {
         let params = MxmDrumMachineParams::default();
-        for (name, text) in FACTORY_FILES {
+        for (index, (name, text)) in FACTORY_FILES.iter().enumerate() {
             let preset = Preset::parse(text, crate::CLAP_ID).expect("factory preset parses");
             assert_eq!(preset.name, *name);
-            assert_eq!(preset.category, Category::Template);
+            // The audition kits are diagnostic templates; the creative kits are kits to play.
+            let category = if index < AUDITION_KITS {
+                Category::Template
+            } else {
+                Category::Percussion
+            };
+            assert_eq!(preset.category, category, "{name}");
             assert!(preset.resolve(&params).1.is_empty(), "{name} is incomplete");
         }
         let all = factory(&params);
@@ -540,7 +727,7 @@ mod tests {
             assert!(untouched(&params), "{} rewired the instance", preset.name);
         }
         // The funnel really wrote the sound: the last kit's first model is in place.
-        assert_eq!(bank.last().unwrap().name, "Early 2L");
+        assert_eq!(bank.last().unwrap().name, "Rhythm Box Meltdown");
         assert_eq!(params.slots[0].model.value(), 85);
 
         mxm_preset::ui::init_patch(&params, &setter);

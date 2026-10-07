@@ -1742,9 +1742,9 @@ mod full_layout {
 
     use super::*;
 
-    const SAMPLE_RATE: f32 = 48_000.0;
+    pub(crate) const SAMPLE_RATE: f32 = 48_000.0;
     /// Deliberately not a multiple of the 64-sample internal block.
-    const FRAMES: usize = 1000;
+    pub(crate) const FRAMES: usize = 1000;
 
     struct Activation;
 
@@ -2198,12 +2198,15 @@ mod full_layout {
         }
     }
 
-    fn port_for(slot: usize) -> usize {
+    pub(crate) fn port_for(slot: usize) -> usize {
         (slot * 5 + 3) % SLOT_COUNT
     }
 
     /// Activates `layout` after `configure`, with every smoother at its target.
-    fn activated(layout: usize, configure: impl FnOnce(&MxmDrumMachineParams)) -> MxmDrumMachine {
+    pub(crate) fn activated(
+        layout: usize,
+        configure: impl FnOnce(&MxmDrumMachineParams),
+    ) -> MxmDrumMachine {
         let mut plugin = MxmDrumMachine::default();
         for (slot, params) in plugin.params.slots.iter().enumerate() {
             // SAFETY: exclusive test ownership; no process or GUI thread exists.
@@ -2245,17 +2248,26 @@ mod full_layout {
         ));
     }
 
-    struct Rendered {
-        main: [Vec<f32>; 2],
-        individual: Vec<Vec<f32>>,
+    pub(crate) struct Rendered {
+        pub(crate) main: [Vec<f32>; 2],
+        pub(crate) individual: Vec<Vec<f32>>,
     }
 
     fn silent(samples: &[f32]) -> bool {
         samples.iter().all(|sample| *sample == 0.0)
     }
 
-    /// One `process()` call of `FRAMES`, striking Kit `notes` at sample 0.
+    /// One `process()` call of `FRAMES`, striking Kit `notes` at sample 0, with no host tempo.
     fn render(plugin: &mut MxmDrumMachine, notes: &[u8]) -> Rendered {
+        render_at(plugin, notes, None)
+    }
+
+    /// [`render`] with the host reporting `tempo` (beats a minute), as a playing DAW does.
+    pub(crate) fn render_at(
+        plugin: &mut MxmDrumMachine,
+        notes: &[u8],
+        tempo: Option<f64>,
+    ) -> Rendered {
         let ports = if plugin.multi_output { SLOT_COUNT } else { 0 };
         let mut left = vec![0.0_f32; FRAMES];
         let mut right = vec![0.0_f32; FRAMES];
@@ -2300,14 +2312,9 @@ mod full_layout {
                     velocity: 0.8,
                 })
                 .collect();
-            plugin.process(
-                &mut main,
-                &mut aux,
-                &mut Events {
-                    transport: Transport::new(SAMPLE_RATE),
-                    events,
-                },
-            );
+            let mut transport = Transport::new(SAMPLE_RATE);
+            transport.tempo = tempo;
+            plugin.process(&mut main, &mut aux, &mut Events { transport, events });
         }
         Rendered {
             main: [left, right],
