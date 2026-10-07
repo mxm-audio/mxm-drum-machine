@@ -159,8 +159,7 @@ The pre-D7 compatibility fixture, the editor's standard and tree checks, review 
 (`MXM_PICTURES=after cargo test -p mxm-drum-machine --lib tree_pictures -- --ignored`) and the full
 coverage list: [NOTES.md § Verification evidence](NOTES.md#verification-evidence). Hardware
 fidelity, real multi-output DAW restoration, Linux and macOS remain unverified. *Since the split
-(2026-10-06):* CI builds and tests Windows, macOS and Linux on `v*` tags or when started by
-hand, and Linux and macOS are checked later, together (root `AGENTS.md`, *Verification*).
+(2026-10-06):* CI builds and tests Windows, macOS and Linux when started by hand, and Linux and macOS are checked later, together (root `AGENTS.md`, *Verification*).
 
 # Child DOX Index
 
