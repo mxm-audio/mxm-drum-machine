@@ -272,17 +272,17 @@ pub fn panel(
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_millis(50));
 
-    if let Some(request) = telemetry.take_view_request()
+    if let Some(request) = telemetry.dev.take_view()
         && let Some(category) = mxm_ui::paging::Category::from_request(request)
     {
         mxm_ui::paging::editor::request_category(ui.ctx(), category);
     }
-    if let Some(theme) = telemetry.take_theme_request()
+    if let Some(theme) = telemetry.dev.take_theme()
         && let Some(preference) = mxm_ui::theme::from_index(theme)
     {
         ui.ctx().set_theme(preference);
     }
-    if let Some(open) = telemetry.take_browser_request() {
+    if let Some(open) = telemetry.dev.take_browser() {
         presets.set_browser_open(open);
     }
 
@@ -295,8 +295,13 @@ pub fn panel(
         &tokens,
         |ui| mxm_preset::ui::preset_row(ui, &tokens, params, setter, presets),
         |ui| {
-            if mxm_ui::shell::level_meter(ui, &tokens, telemetry.take_peak(), telemetry.clipped()) {
-                telemetry.clear_clip();
+            if mxm_ui::shell::level_meter(
+                ui,
+                &tokens,
+                telemetry.meter.take(),
+                telemetry.meter.clipped(),
+            ) {
+                telemetry.meter.clear_clip();
             }
             // Design system §3.1 slot 6: the whole kit's output control sits beside its meter,
             // not among one slot's controls.

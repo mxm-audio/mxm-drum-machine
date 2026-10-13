@@ -1,11 +1,9 @@
 //! Lock-free DSP-to-editor activity and developer requests.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use mxm_drum_machine_dsp::SLOT_COUNT;
-
-const NO_REQUEST: u8 = u8::MAX;
 
 /// A capture `process` asked for: the rate to render at, and the engage it belongs to.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,12 +28,13 @@ pub enum Export {
 
 #[derive(Debug)]
 pub struct Telemetry {
-    peak: AtomicU32,
-    clipped: AtomicBool,
+    /// The output level and its clip latch: the collection's one meter policy
+    /// (`mxm_telemetry::PeakMeter`).
+    pub meter: mxm_telemetry::PeakMeter,
+    /// The developer channel's requests of the editor, each taken once
+    /// (`mxm_telemetry::DevRequests`).
+    pub dev: mxm_telemetry::DevRequests,
     slot_peaks: [AtomicU32; SLOT_COUNT],
-    dev_view: AtomicU8,
-    dev_browser: AtomicU8,
-    dev_theme: AtomicU8,
     /// The last export's outcome, waiting for an editor frame to show it.
     export: std::sync::Mutex<Option<Export>>,
     /// The capture `process` wants, or zero for no request: the rate as `f32` bits in the low
@@ -65,12 +64,9 @@ pub struct Telemetry {
 impl Default for Telemetry {
     fn default() -> Self {
         Self {
-            peak: AtomicU32::new(0),
-            clipped: AtomicBool::new(false),
+            meter: mxm_telemetry::PeakMeter::new(),
+            dev: mxm_telemetry::DevRequests::new(),
             slot_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
-            dev_view: AtomicU8::new(NO_REQUEST),
-            dev_browser: AtomicU8::new(NO_REQUEST),
-            dev_theme: AtomicU8::new(NO_REQUEST),
             export: std::sync::Mutex::new(None),
             capture_wanted: AtomicU64::new(0),
             tempo: mxm_tempo::TempoCell::new(),
@@ -131,13 +127,6 @@ impl Telemetry {
         }
     }
 
-    pub fn publish_peak(&self, peak: f32) {
-        max_combine(&self.peak, peak);
-        if peak.is_finite() && peak >= 1.0 {
-            self.clipped.store(true, Ordering::Relaxed);
-        }
-    }
-
     pub fn publish_slot_peaks(&self, peaks: [f32; SLOT_COUNT]) {
         for (target, peak) in self.slot_peaks.iter().zip(peaks) {
             max_combine(target, peak);
@@ -145,52 +134,10 @@ impl Telemetry {
     }
 
     #[must_use]
-    pub fn take_peak(&self) -> f32 {
-        f32::from_bits(self.peak.swap(0, Ordering::Relaxed))
-    }
-
-    #[must_use]
     pub fn take_slot_peaks(&self) -> [f32; SLOT_COUNT] {
         std::array::from_fn(|index| {
             f32::from_bits(self.slot_peaks[index].swap(0, Ordering::Relaxed))
         })
-    }
-
-    #[must_use]
-    pub fn clipped(&self) -> bool {
-        self.clipped.load(Ordering::Relaxed)
-    }
-
-    pub fn clear_clip(&self) {
-        self.clipped.store(false, Ordering::Relaxed);
-    }
-
-    pub fn request_view(&self, value: u8) {
-        self.dev_view.store(value, Ordering::Relaxed);
-    }
-
-    pub fn request_browser(&self, open: bool) {
-        self.dev_browser
-            .store(if open { 1 } else { 0 }, Ordering::Relaxed);
-    }
-
-    pub fn request_theme(&self, value: u8) {
-        self.dev_theme.store(value, Ordering::Relaxed);
-    }
-
-    #[must_use]
-    pub fn take_view_request(&self) -> Option<usize> {
-        take_request(&self.dev_view).map(usize::from)
-    }
-
-    #[must_use]
-    pub fn take_browser_request(&self) -> Option<bool> {
-        take_request(&self.dev_browser).map(|value| value != 0)
-    }
-
-    #[must_use]
-    pub fn take_theme_request(&self) -> Option<u8> {
-        take_request(&self.dev_theme)
     }
 }
 
@@ -215,27 +162,9 @@ fn max_combine(target: &AtomicU32, value: f32) {
     }
 }
 
-fn take_request(source: &AtomicU8) -> Option<u8> {
-    let value = source.swap(NO_REQUEST, Ordering::Relaxed);
-    (value != NO_REQUEST).then_some(value)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn peaks_max_combine_and_clip_latches() {
-        let telemetry = Telemetry::default();
-        telemetry.publish_peak(0.2);
-        telemetry.publish_peak(1.2);
-        telemetry.publish_peak(0.4);
-        assert_eq!(telemetry.take_peak(), 1.2);
-        assert_eq!(telemetry.take_peak(), 0.0);
-        assert!(telemetry.clipped());
-        telemetry.clear_clip();
-        assert!(!telemetry.clipped());
-    }
 
     #[test]
     fn every_slot_has_independent_drop_tolerant_activity() {

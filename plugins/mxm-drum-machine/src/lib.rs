@@ -767,9 +767,9 @@ impl MxmDrumMachine {
         if let NoteEvent::MidiCC { cc, value, .. } = event {
             let raw = (value.clamp(0.0, 1.0) * 127.0).round() as u8;
             match cc {
-                DEV_VIEW_CC => self.telemetry.request_view(raw),
-                DEV_BROWSER_CC => self.telemetry.request_browser(raw >= 64),
-                DEV_THEME_CC => self.telemetry.request_theme(raw),
+                DEV_VIEW_CC => self.telemetry.dev.request_view(raw),
+                DEV_BROWSER_CC => self.telemetry.dev.request_browser(raw >= 64),
+                DEV_THEME_CC => self.telemetry.dev.request_theme(raw),
                 _ => {}
             }
         }
@@ -1029,7 +1029,7 @@ impl Plugin for MxmDrumMachine {
                 index += 1;
             }
 
-            self.telemetry.publish_peak(block_peak);
+            self.telemetry.meter.publish(block_peak);
             self.telemetry
                 .publish_slot_peaks(self.engine.take_slot_peaks());
         }
@@ -1133,17 +1133,17 @@ mod tests {
             plugin.handle_developer_event(cc(number, value));
         }
         assert_eq!(
-            plugin.telemetry.take_view_request(),
+            plugin.telemetry.dev.take_view(),
             None,
             "view without the environment"
         );
         assert_eq!(
-            plugin.telemetry.take_browser_request(),
+            plugin.telemetry.dev.take_browser(),
             None,
             "browser without the environment"
         );
         assert_eq!(
-            plugin.telemetry.take_theme_request(),
+            plugin.telemetry.dev.take_theme(),
             None,
             "theme without the environment"
         );
@@ -1153,11 +1153,11 @@ mod tests {
             plugin.handle_developer_event(cc(number, value));
         }
         assert!(
-            plugin.telemetry.take_view_request().is_some(),
+            plugin.telemetry.dev.take_view().is_some(),
             "the gate never opens"
         );
-        assert_eq!(plugin.telemetry.take_browser_request(), Some(true));
-        assert!(plugin.telemetry.take_theme_request().is_some());
+        assert_eq!(plugin.telemetry.dev.take_browser(), Some(true));
+        assert!(plugin.telemetry.dev.take_theme().is_some());
     }
 
     #[test]
