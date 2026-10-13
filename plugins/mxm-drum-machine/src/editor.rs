@@ -226,6 +226,7 @@ impl NiceEguiApp for MxmDrumMachineApp {
         mxm_ui::theme::apply(&egui_ctx);
         mxm_ui::typography::apply(&egui_ctx);
         egui_ctx.set_theme(mxm_ui::theme::preference());
+        mxm_ui::navigation::use_shared_keymap(&egui_ctx);
         self.gui_context = Some(nice_gui_ctx);
         Ok(())
     }
