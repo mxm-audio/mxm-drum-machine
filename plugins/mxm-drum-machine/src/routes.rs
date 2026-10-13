@@ -186,7 +186,7 @@ impl RouteParams {
                 },
             )
             .with_smoother(SmoothingStyle::Linear(15.0))
-            .with_value_to_string(formatters::v2s_f32_percentage(0))
+            .with_value_to_string(mxm_params::text::whole_percentage())
             .with_string_to_value(formatters::s2v_f32_percentage()),
         }
     }
