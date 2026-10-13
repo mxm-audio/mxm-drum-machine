@@ -4,6 +4,7 @@
 //! admitted circuits can parameterise after their own strike, nonlinear and output networks are
 //! derived. A model owns those laws and constants; this module owns only the stable pole pair.
 
+use crate::guard::finite_or;
 use std::f64::consts::TAU;
 
 /// Lowest sample rate accepted by the DSP crate.
@@ -126,27 +127,13 @@ impl Resonator {
     }
 }
 
-#[inline]
-fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn zero_crossing_frequency(samples: &[f32], sample_rate: f32) -> f32 {
-        let mut crossings = Vec::new();
-        for index in 1..samples.len() {
-            if samples[index - 1] <= 0.0 && samples[index] > 0.0 {
-                let before = samples[index - 1];
-                let after = samples[index];
-                let fraction = -before / (after - before);
-                crossings.push(index as f32 - 1.0 + fraction);
-            }
-        }
-        let periods = crossings.len().saturating_sub(1);
-        sample_rate * periods as f32 / (crossings[periods] - crossings[0])
+        mxm_measure::pitch::frequency_by_crossings(samples, f64::from(sample_rate))
+            .expect("a finite render with zero crossings") as f32
     }
 
     #[test]

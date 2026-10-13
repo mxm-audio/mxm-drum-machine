@@ -11,6 +11,8 @@ pub mod capture;
 pub mod conformance;
 pub mod deep_bridge_kick;
 mod economy_55;
+pub(crate) mod guard;
+pub(crate) use guard::flush;
 pub mod engine;
 pub mod falling_drum;
 pub mod jump;
@@ -101,13 +103,6 @@ impl<K: PartialEq + Copy, V: Copy> Default for Coefficient<K, V> {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Flushes subnormal recursive state to exact zero.
-#[inline]
-#[must_use]
-pub(crate) fn flush(value: f32) -> f32 {
-    if value.abs() < 1.0e-20 { 0.0 } else { value }
 }
 
 #[cfg(test)]

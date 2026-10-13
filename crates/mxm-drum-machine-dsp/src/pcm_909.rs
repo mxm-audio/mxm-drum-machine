@@ -14,6 +14,7 @@
 //! the offline method and fixed representation.
 
 use crate::engine::SlotPatch;
+use crate::guard::{finite_bipolar as bipolar, finite_or as finite};
 
 const SOURCE_RATE: f64 = 44_100.0;
 const HAT: &[u8] = include_bytes!("../assets/reset-909-nmf/hat.pcm");
@@ -273,14 +274,6 @@ fn sinc_weight(phase: usize, tap: usize) -> f32 {
         SINC_TABLE[byte + 2],
         SINC_TABLE[byte + 3],
     ])
-}
-
-fn bipolar(value: f32) -> f32 {
-    finite(value, 0.0).clamp(-1.0, 1.0)
-}
-
-fn finite(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
 }
 
 #[cfg(test)]

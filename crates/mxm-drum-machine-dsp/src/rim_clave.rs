@@ -15,6 +15,7 @@
 //! The clave stays below the clipping point: a clean cosine-phase ring.
 
 use crate::deep_bridge_kick::PhasorResonator;
+use crate::guard::{finite_bipolar, finite_or, flush_f64};
 use crate::resonator::MIN_SAMPLE_RATE;
 use crate::{Coefficient, flush};
 
@@ -320,18 +321,6 @@ impl RimClave {
         self.age = 0;
         self.active = false;
     }
-}
-
-fn finite_bipolar(value: f32) -> f32 {
-    finite_or(value, 0.0).clamp(-1.0, 1.0)
-}
-
-fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
-}
-
-fn flush_f64(value: f64) -> f64 {
-    if value.abs() < 1.0e-20 { 0.0 } else { value }
 }
 
 #[cfg(test)]

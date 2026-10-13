@@ -10,8 +10,7 @@ const PLUGIN: &str = "dk.mxm.mxm-drum-machine";
 const SKIP: &str = "skipping: run `cargo xtask bundle -p mxm-drum-machine --release`";
 
 fn bundle() -> Option<PathBuf> {
-    let path = mxm_player_harness::workspace_root().join("target/bundled/mxm-drum-machine.clap");
-    path.exists().then_some(path)
+    mxm_player_harness::host_test::plugin_bundle("mxm-drum-machine").map(|(_, file)| file)
 }
 
 fn fixture(name: &str) -> PathBuf {

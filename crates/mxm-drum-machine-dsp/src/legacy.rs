@@ -9,6 +9,7 @@
 //! its centre trim (§12.4) replaces each one. Voices without a recording (38, 39, 65, 66, 73,
 //! 75–78, 83, 84, 86–89, 93, 94) keep their schematic-nominal tuning and take only the systemic
 //! renderer changes and their measured siblings' circuit shapes.
+use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush as flush32};
 use crate::{
     engine::SlotPatch,
     model::ModelId,
@@ -2596,9 +2597,6 @@ fn decay_coefficient(t60: f32, fs: f32) -> f32 {
 fn flush(x: f64) -> f64 {
     if x.abs() < 1.0e-30 { 0.0 } else { x }
 }
-fn flush32(x: f32) -> f32 {
-    if x.abs() < 1.0e-20 { 0.0 } else { x }
-}
 fn envelope_depth(value: f32) -> f32 {
     if value < 0.0 {
         1.0 + value
@@ -2619,12 +2617,6 @@ fn extended_decay_scale(value: f32) -> f32 {
     } else {
         8.0_f32.powf(value)
     }
-}
-fn bipolar(v: f32) -> f32 {
-    finite(v, 0.).clamp(-1., 1.)
-}
-fn finite(v: f32, f: f32) -> f32 {
-    if v.is_finite() { v } else { f }
 }
 #[cfg(test)]
 mod tests {

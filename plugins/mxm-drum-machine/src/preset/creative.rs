@@ -2352,7 +2352,7 @@ fn generated(params: &MxmDrumMachineParams, kit: &Kit) -> Preset {
     let mut preset = Preset::capture("", Category::Percussion, params);
     preset.name = kit.name.to_owned();
     preset.category = Category::Percussion;
-    let mut put = |id: &str, param: &dyn mxm_preset::ErasedParam, v: f32| {
+    let mut put = |id: &str, param: &dyn mxm_params::ErasedParam, v: f32| {
         preset.params.insert(
             id.to_owned(),
             Value {

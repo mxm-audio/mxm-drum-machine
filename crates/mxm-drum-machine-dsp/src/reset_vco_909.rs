@@ -8,6 +8,7 @@
 //! measurements of a trimmed unit, and each names the measurement that could replace it.
 
 use crate::flush;
+use crate::guard::{finite_bipolar, finite_or};
 use crate::resonator::{MIN_SAMPLE_RATE, Resonator};
 
 #[derive(Debug, Clone)]
@@ -1079,12 +1080,6 @@ fn valid_sample_rate(v: f32) -> f32 {
     } else {
         48_000.0
     }
-}
-fn finite_bipolar(v: f32) -> f32 {
-    finite_or(v, 0.0).clamp(-1.0, 1.0)
-}
-fn finite_or(v: f32, f: f32) -> f32 {
-    if v.is_finite() { v } else { f }
 }
 #[cfg(test)]
 mod tests {

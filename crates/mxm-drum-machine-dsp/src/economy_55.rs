@@ -3,6 +3,7 @@
 //! (`research:instruments/analogue-drum-machines.md` §5.5). The constants below were fitted to the
 //! acquired comparison recordings (single hits from a private DR-55 sample folder) in the
 //! 2026-09-19 A/B pass; each names the measurement that could replace it.
+use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush};
 use crate::{engine::SlotPatch, resonator::Resonator};
 
 /// The level a velocity-0.82, zero-Dynamics hit strikes with: the fitted kick's unit strike, so
@@ -590,15 +591,6 @@ fn extended_decay_scale(value: f32) -> f32 {
     } else {
         8.0_f32.powf(value)
     }
-}
-fn bipolar(v: f32) -> f32 {
-    finite(v, 0.0).clamp(-1.0, 1.0)
-}
-fn finite(v: f32, f: f32) -> f32 {
-    if v.is_finite() { v } else { f }
-}
-fn flush(v: f32) -> f32 {
-    if v.abs() < 1e-20 { 0.0 } else { v }
 }
 #[cfg(test)]
 mod tests {

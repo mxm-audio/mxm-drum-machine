@@ -153,6 +153,11 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
 - Open for the owner: the CR-8000 conga mapping, the FR-2L kick's click, the TR-606 cymbal's ripple
   and the 909 Ride.
 
+- **The guards are `src/guard.rs`'s, once** — `finite_or`, `finite_unit`, `finite_bipolar`, `flush`
+  and `flush_f64` — and a circuit imports them, under its own local names where it had them,
+  rather than writing them again (they were thirteen copies). `legacy`'s f64 flush at `1e-30` is a
+  different threshold and stays its own.
+
 # Work Guidance
 
 - Read `research:instruments/analogue-drum-machines.md` and its cited primary source before adding or

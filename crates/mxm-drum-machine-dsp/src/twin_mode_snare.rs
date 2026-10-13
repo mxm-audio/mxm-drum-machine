@@ -11,6 +11,7 @@
 //! hardware.
 
 use crate::deep_bridge_kick::PhasorResonator;
+use crate::guard::{finite_bipolar, finite_or, finite_unit, flush_f64};
 use crate::resonator::MIN_SAMPLE_RATE;
 use crate::{Coefficient, flush};
 
@@ -294,22 +295,6 @@ fn envelope_time_scale(value: f32) -> f32 {
     } else {
         8.0_f32.powf(value)
     }
-}
-
-fn finite_unit(value: f32) -> f32 {
-    finite_or(value, 0.0).clamp(0.0, 1.0)
-}
-
-fn finite_bipolar(value: f32) -> f32 {
-    finite_or(value, 0.0).clamp(-1.0, 1.0)
-}
-
-fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
-}
-
-fn flush_f64(value: f64) -> f64 {
-    if value.abs() < 1.0e-20 { 0.0 } else { value }
 }
 
 #[cfg(test)]

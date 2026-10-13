@@ -5,6 +5,7 @@ use crate::analogue_909::{FourCellClap, TripleRim};
 use crate::deep_bridge_kick::{DeepBridgeKick, Patch as KickPatch};
 use crate::economy_55::{Kind as EconomyKind, Noise as EconomyNoise, Voice as EconomyVoice};
 use crate::falling_drum::{FallingDrum, Kind as FallingKind, Patch as FallingPatch};
+use crate::guard::finite_or;
 use crate::legacy::{Sources as LegacySources, Voice as LegacyVoice, machine as legacy_machine};
 use crate::metal_808::{Cowbell, Cymbal, Hat, HatKind, MetalBank, Patch as MetalPatch};
 use crate::model::{ImplementedModel, ModelId};
@@ -1472,11 +1473,6 @@ fn xorshift64(mut value: u64) -> u64 {
 fn hash_bipolar(bits: u64) -> f32 {
     let unit = ((bits >> 40) as u32) as f32 / ((1_u32 << 24) - 1) as f32;
     standard::random(unit)
-}
-
-#[inline]
-fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
 }
 
 /// The 808 low-tom pink tail's one-pole coefficient at one sample rate. Called from activation and

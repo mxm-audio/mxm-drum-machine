@@ -20,7 +20,7 @@ impl Instrument for MxmDrumMachineParams {
         crate::CLAP_ID
     }
 
-    fn parameters(&self) -> Vec<(&'static str, &dyn mxm_preset::ErasedParam)> {
+    fn parameters(&self) -> Vec<(&'static str, &dyn mxm_params::ErasedParam)> {
         let mut out = Vec::with_capacity(SLOT_COUNT * SLOT_PARAMETERS + GLOBAL_IDS.len());
         for (slot, params) in self.slots.iter().enumerate() {
             out.extend(slot_ids(slot).iter().copied().zip(params.parameters()));
@@ -323,7 +323,7 @@ mod tests {
                 slot_ids(slot)[at::MODEL].to_owned(),
                 Value {
                     v: model_value,
-                    text: (&parameter.model as &dyn mxm_preset::ErasedParam).format(model_value),
+                    text: (&parameter.model as &dyn mxm_params::ErasedParam).format(model_value),
                 },
             );
             let mute_value = if requested == 0 { 1.0 } else { 0.0 };
@@ -331,7 +331,7 @@ mod tests {
                 slot_ids(slot)[at::MUTE].to_owned(),
                 Value {
                     v: mute_value,
-                    text: (&parameter.mute as &dyn mxm_preset::ErasedParam).format(mute_value),
+                    text: (&parameter.mute as &dyn mxm_params::ErasedParam).format(mute_value),
                 },
             );
             let level_value = parameter
@@ -341,11 +341,24 @@ mod tests {
                 slot_ids(slot)[at::LEVEL].to_owned(),
                 Value {
                     v: level_value,
-                    text: (&parameter.level as &dyn mxm_preset::ErasedParam).format(level_value),
+                    text: (&parameter.level as &dyn mxm_params::ErasedParam).format(level_value),
                 },
             );
         }
         preset
+    }
+
+    /// **Every stored `text` is this plugin's own formatting of the `v` beside it**
+    /// (`mxm_preset::stale_factory_texts`).
+    #[test]
+    fn every_factory_text_is_this_plugins_formatting_of_its_value() {
+        let stale = mxm_preset::stale_factory_texts(&MxmDrumMachineParams::default());
+        assert!(
+            stale.is_empty(),
+            "{} stale texts — regenerate the files:\n{}",
+            stale.len(),
+            stale.join("\n")
+        );
     }
 
     #[test]

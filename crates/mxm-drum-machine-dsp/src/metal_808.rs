@@ -14,6 +14,7 @@
 //! VCAs plus the lower 3.2 kHz band, each under its own envelope, as §3.8 describes. VCA curves
 //! remain behavioural and hardware-unverified.
 
+use crate::guard::{finite_bipolar, finite_or, flush_f64};
 use crate::noise_percussion::BandPass;
 use crate::resonator::MIN_SAMPLE_RATE;
 use crate::{Coefficient, flush};
@@ -860,15 +861,6 @@ fn valid_sample_rate(value: f32) -> f32 {
     } else {
         48_000.0
     }
-}
-fn finite_bipolar(value: f32) -> f32 {
-    finite_or(value, 0.0).clamp(-1.0, 1.0)
-}
-fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
-}
-fn flush_f64(value: f64) -> f64 {
-    if value.abs() < 1.0e-20 { 0.0 } else { value }
 }
 
 #[cfg(test)]

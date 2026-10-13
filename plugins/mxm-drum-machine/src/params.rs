@@ -266,7 +266,7 @@ impl SlotParams {
 
     /// The slot's parameters in declaration order, beside [`slot_ids`].
     #[must_use]
-    pub fn parameters(&self) -> [&dyn mxm_preset::ErasedParam; SLOT_PARAMETERS] {
+    pub fn parameters(&self) -> [&dyn mxm_params::ErasedParam; SLOT_PARAMETERS] {
         let c = self.controls.all();
         let r = self.routes.all();
         [
@@ -380,7 +380,7 @@ impl Default for MxmDrumMachineParams {
 impl MxmDrumMachineParams {
     /// The kit-wide parameters in declaration order, beside [`GLOBAL_IDS`].
     #[must_use]
-    pub fn globals(&self) -> [&dyn mxm_preset::ErasedParam; GLOBAL_IDS.len()] {
+    pub fn globals(&self) -> [&dyn mxm_params::ErasedParam; GLOBAL_IDS.len()] {
         [
             &self.master,
             &self.lfo1_rate,
@@ -700,7 +700,7 @@ fn deviation(name: &str) -> FloatParam {
         },
     )
     .with_smoother(SmoothingStyle::Linear(15.0))
-    .with_value_to_string(formatters::v2s_f32_percentage(0))
+    .with_value_to_string(mxm_params::text::whole_percentage())
     .with_string_to_value(formatters::s2v_f32_percentage())
 }
 
@@ -725,6 +725,13 @@ mod tests {
     use super::*;
     use crate::routes::SourceChoice;
     use nice_plug::params::Param;
+
+    /// **Every parameter's text survives the host's round trip**, with the unit on, across the
+    /// collection's grids and switch points (`mxm_plugin_test::text_checks`).
+    #[test]
+    fn every_parameter_text_survives_the_hosts_round_trip() {
+        mxm_plugin_test::text_checks::every_text_round_trips(&MxmDrumMachineParams::default(), &[]);
+    }
 
     #[test]
     fn init_fills_only_completed_rows_of_the_final_kit() {

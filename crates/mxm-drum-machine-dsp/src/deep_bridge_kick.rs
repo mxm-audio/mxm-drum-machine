@@ -14,6 +14,7 @@
 //! and its end-of-condition strike, the pitch sigh, the waveform-dependent leakage and the
 //! asymmetric output. Fidelity remains unverified against authenticated hardware.
 
+use crate::guard::{finite_bipolar, finite_or, finite_unit};
 use crate::resonator::{MAX_FREQUENCY_FRACTION, MIN_SAMPLE_RATE};
 use crate::{Coefficient, flush};
 
@@ -425,21 +426,6 @@ fn envelope_time_scale(value: f32) -> f32 {
     } else {
         8.0_f32.powf(value)
     }
-}
-
-#[inline]
-fn finite_unit(value: f32) -> f32 {
-    finite_or(value, 0.0).clamp(0.0, 1.0)
-}
-
-#[inline]
-fn finite_bipolar(value: f32) -> f32 {
-    finite_or(value, 0.0).clamp(-1.0, 1.0)
-}
-
-#[inline]
-fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
 }
 
 #[cfg(test)]

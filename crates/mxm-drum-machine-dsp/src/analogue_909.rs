@@ -3,6 +3,7 @@
 //! calibration targets nor hardware measurements close the exact constants; the reference values
 //! below were fitted to the acquired comparison recordings in the 2026-09-19 A/B pass and each names
 //! the measurement that could replace it.
+use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush};
 use crate::{engine::SlotPatch, resonator::Resonator};
 const LN_001: f32 = -6.907_755_4;
 /// Rim constants fitted to the acquired comparison recording (unaccented, fixed voice) in the
@@ -387,15 +388,6 @@ fn envelope_time_scale(value: f32) -> f32 {
     } else {
         8.0_f32.powf(value)
     }
-}
-fn bipolar(v: f32) -> f32 {
-    finite(v, 0.0).clamp(-1.0, 1.0)
-}
-fn finite(v: f32, f: f32) -> f32 {
-    if v.is_finite() { v } else { f }
-}
-fn flush(v: f32) -> f32 {
-    if v.abs() < 1e-20 { 0.0 } else { v }
 }
 #[cfg(test)]
 mod tests {
