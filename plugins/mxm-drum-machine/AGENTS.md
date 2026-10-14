@@ -166,7 +166,8 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   I/O or blocking in `process()`.
 - Event groups use fixed arrays, built only where an event is due, bounded at 256 NoteOns and 256
   other events; past a bound only an order-independent result survives. Note ownership is
-  order-independent; same-offset controller events keep host order. Output selectors apply before
+  `mxm_part_routing`'s `EventGroup` and `PartState`, with this plugin's laws (`NoteLaws`) and flood
+  response passed in, and order-independent; same-offset controller events keep host order. Output selectors apply before
   triggers; buffers are capped at 64 samples between event checks.
 - Smoothers advance once per rendered sample; telemetry publishes once per internal block;
   `ProcessStatus::Tail` while any circuit is active, otherwise `Normal`.

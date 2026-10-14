@@ -29,6 +29,7 @@ egui = "=0.36.1"
 mxm-audio-file = { git = "https://github.com/mxm-audio/mxm-kit", branch = "main" }
 mxm-audio-file-decode = { git = "https://github.com/mxm-audio/mxm-kit", branch = "main" }
 mxm-drum-machine-dsp = { path = "crates/mxm-drum-machine-dsp" }
+mxm-drum-engine = { git = "https://github.com/mxm-audio/mxm-kit", branch = "main" }
 mxm-dsp = { git = "https://github.com/mxm-audio/mxm-kit", branch = "main" }
 mxm-listening = { git = "https://github.com/mxm-audio/mxm-tools", branch = "main" }
 mxm-measure = { git = "https://github.com/mxm-audio/mxm-kit", branch = "main" }

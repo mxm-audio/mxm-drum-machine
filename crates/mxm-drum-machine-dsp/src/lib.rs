@@ -28,7 +28,7 @@ pub mod twin_mode_snare;
 pub mod velocity;
 
 /// Number of simultaneously addressable drum circuits.
-pub const SLOT_COUNT: usize = 16;
+pub const SLOT_COUNT: usize = mxm_drum_engine::SLOT_COUNT;
 /// MIDI note assigned to slot 0.
 pub const FIRST_NOTE: u8 = 36;
 /// MIDI note assigned to slot 15.

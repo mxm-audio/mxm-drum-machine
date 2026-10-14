@@ -30,8 +30,8 @@ use mxm_drum_machine_dsp::engine::{
 use mxm_drum_machine_dsp::model::ModelId;
 use mxm_drum_machine_dsp::routing::Routing;
 use mxm_part_routing::{
-    Destination, FixedChannelCollision, MonophonicArbitrator, NoteAddress, NoteCandidate,
-    NoteOwner, PartAssignment, assignment_matches, claimed_channels,
+    ArbitrationResult, Destination, FixedChannelCollision, NoteAddress, NoteCandidate, NoteOwner,
+    PartAssignment, PartPolicy, PartState, ResolveFlags, assignment_matches, claimed_channels,
 };
 use nice_plug::midi::{Channel, Key, VoiceID};
 use nice_plug::prelude::*;
@@ -51,6 +51,8 @@ fn legacy_note(voice_id: VoiceID, channel: Channel, key: Key) -> (Option<i32>, u
 }
 
 const INTERNAL_BLOCK: usize = 64;
+/// The Kit key slot 0 answers on; slot `n` answers on `FIRST_KEY + n`.
+const FIRST_KEY: u8 = 36;
 const NUM_CHANNELS: usize = 16;
 const MAX_GROUP_NOTE_EVENTS: usize = 256;
 const DEV_VIEW_CC: u8 = 119;
@@ -143,17 +145,10 @@ pub struct MxmDrumMachine {
     params: Arc<MxmDrumMachineParams>,
     engine: Box<Engine>,
     sample_rate: f32,
-    bend: [f32; NUM_CHANNELS],
-    wheel: [f32; NUM_CHANNELS],
-    pressure: [f32; NUM_CHANNELS],
-    slot_channel: [u8; SLOT_COUNT],
-    tuning: [f32; SLOT_COUNT],
-    chromatic_pitch: [f32; SLOT_COUNT],
-    /// The note that owns each slot's current hit. It addresses the hit until choke, retrigger or
-    /// panic, so a NoteChoke still finds a one-shot tail after its note was released.
-    owner: [Option<NoteOwner>; SLOT_COUNT],
-    /// Whether per-note expression still follows `owner`. NoteOff and CC123 end this, not the hit.
-    owns_expression: [bool; SLOT_COUNT],
+    /// Who owns each slot's current hit, and the expression it reads. An owner addresses its hit
+    /// until choke, retrigger or panic, so a NoteChoke still finds a one-shot tail after its note
+    /// was released; NoteOff and CC123 end its expression, not the hit.
+    parts: PartState<SLOT_COUNT, NUM_CHANNELS>,
     multi_output: bool,
     /// The rate the installed kit was rendered at, or `None` for no kit.
     ///
@@ -198,14 +193,7 @@ impl Default for MxmDrumMachine {
             params: Arc::new(MxmDrumMachineParams::default()),
             engine: Box::new(Engine::new()),
             sample_rate: 48_000.0,
-            bend: [0.0; NUM_CHANNELS],
-            wheel: [0.0; NUM_CHANNELS],
-            pressure: [0.0; NUM_CHANNELS],
-            slot_channel: [0; SLOT_COUNT],
-            tuning: [0.0; SLOT_COUNT],
-            chromatic_pitch: [0.0; SLOT_COUNT],
-            owner: [None; SLOT_COUNT],
-            owns_expression: [false; SLOT_COUNT],
+            parts: PartState::new(),
             multi_output: false,
             captured: None,
             bank: Arc::new(capture_bank::CaptureBank::new()),
@@ -222,73 +210,16 @@ impl Default for MxmDrumMachine {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum PartEvent {
-    Off(NoteAddress),
-    Choke(NoteAddress),
-    Tuning {
-        address: NoteAddress,
-        semitones: f32,
-    },
+/// One sample offset's events: `mxm_part_routing`'s group, sized for this plugin.
+type EventGroup = mxm_part_routing::EventGroup<MAX_GROUP_NOTE_EVENTS, NUM_CHANNELS>;
+
+/// Translates a host event into the group. The finite checks and the ranges (velocity 0–1, tuning
+/// ±48 semitones, bend scaled to ±1) are this plugin's; the group stores what it is given.
+trait Collect {
+    fn collect(&mut self, event: NoteEvent<()>);
 }
 
-#[derive(Debug, Clone, Copy)]
-struct EventGroup {
-    note_ons: MonophonicArbitrator<MAX_GROUP_NOTE_EVENTS>,
-    events: [Option<PartEvent>; MAX_GROUP_NOTE_EVENTS],
-    local_count: usize,
-    /// More releases, chokes and tunings arrived than `events` holds.
-    local_overflow: bool,
-    /// Any NoteChoke arrived, whether or not it was stored.
-    any_choke: bool,
-    panic: bool,
-    all_notes_off: bool,
-    bend: [Option<f32>; NUM_CHANNELS],
-    wheel: [Option<f32>; NUM_CHANNELS],
-    pressure: [Option<f32>; NUM_CHANNELS],
-}
-
-impl EventGroup {
-    fn new() -> Self {
-        Self {
-            note_ons: MonophonicArbitrator::new(),
-            events: [None; MAX_GROUP_NOTE_EVENTS],
-            local_count: 0,
-            local_overflow: false,
-            any_choke: false,
-            panic: false,
-            all_notes_off: false,
-            bend: [None; NUM_CHANNELS],
-            wheel: [None; NUM_CHANNELS],
-            pressure: [None; NUM_CHANNELS],
-        }
-    }
-
-    fn push_note_on(&mut self, candidate: NoteCandidate) {
-        // Refuse an adversarial same-sample NoteOn flood as panic rather than install a partially
-        // collected chord whose winner depends on which event crossed the bound.
-        if !self.note_ons.push(candidate) {
-            self.panic = true;
-        }
-    }
-
-    /// Stores a release, choke or tuning. Past capacity only the flags remain, and
-    /// `resolve_events` replaces the whole group's local events with a superset no host order can
-    /// change (see there), so a release flood cannot cut every tail.
-    fn push_local(&mut self, event: PartEvent) {
-        self.any_choke |= matches!(event, PartEvent::Choke(_));
-        if self.local_count < MAX_GROUP_NOTE_EVENTS {
-            self.events[self.local_count] = Some(event);
-            self.local_count += 1;
-        } else {
-            self.local_overflow = true;
-        }
-    }
-
-    fn local_events(&self) -> impl Iterator<Item = PartEvent> + '_ {
-        self.events[..self.local_count].iter().flatten().copied()
-    }
-
+impl Collect for EventGroup {
     fn collect(&mut self, event: NoteEvent<()>) {
         match event {
             NoteEvent::NoteOn {
@@ -299,14 +230,18 @@ impl EventGroup {
                 ..
             } if velocity.is_finite() && velocity > 0.0 => {
                 let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
-                self.push_note_on(NoteCandidate {
+                // Refuse an adversarial same-sample NoteOn flood as panic rather than install a
+                // partially collected chord whose winner depends on which event crossed the bound.
+                if !self.note_on(NoteCandidate {
                     owner: NoteOwner {
                         channel,
                         key: note,
                         note_id: voice_id,
                     },
                     strike: velocity.clamp(0.0, 1.0),
-                });
+                }) {
+                    self.panic();
+                }
             }
             NoteEvent::NoteOn {
                 voice_id,
@@ -321,7 +256,7 @@ impl EventGroup {
                 ..
             } => {
                 let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
-                self.push_local(PartEvent::Off(note_address(channel, note, voice_id)));
+                self.release(note_address(channel, note, voice_id));
             }
             NoteEvent::Choke {
                 voice_id,
@@ -330,7 +265,7 @@ impl EventGroup {
                 ..
             } => {
                 let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
-                self.push_local(PartEvent::Choke(note_address(channel, note, voice_id)));
+                self.choke(note_address(channel, note, voice_id));
             }
             NoteEvent::PolyTuning {
                 voice_id,
@@ -340,19 +275,18 @@ impl EventGroup {
                 ..
             } if tuning.is_finite() => {
                 let (voice_id, channel, note) = legacy_note(voice_id, channel, key);
-                self.push_local(PartEvent::Tuning {
-                    address: note_address(channel, note, voice_id),
-                    semitones: tuning.clamp(-48.0, 48.0),
-                });
+                self.tune(
+                    note_address(channel, note, voice_id),
+                    tuning.clamp(-48.0, 48.0),
+                );
             }
             NoteEvent::MidiPitchBend { channel, value, .. } if value.is_finite() => {
-                self.bend[channel as usize % NUM_CHANNELS] =
-                    Some((2.0 * (value - 0.5)).clamp(-1.0, 1.0));
+                self.bend(channel as usize, (2.0 * (value - 0.5)).clamp(-1.0, 1.0));
             }
             NoteEvent::MidiChannelPressure {
                 channel, pressure, ..
             } if pressure.is_finite() => {
-                self.pressure[channel as usize % NUM_CHANNELS] = Some(pressure.clamp(0.0, 1.0));
+                self.pressure(channel as usize, pressure.clamp(0.0, 1.0));
             }
             NoteEvent::MidiCC {
                 channel,
@@ -360,15 +294,70 @@ impl EventGroup {
                 value,
                 ..
             } if value.is_finite() => {
-                self.wheel[channel as usize % NUM_CHANNELS] = Some(value.clamp(0.0, 1.0));
+                self.wheel(channel as usize, value.clamp(0.0, 1.0));
             }
-            NoteEvent::MidiCC { cc, .. } if cc == control_change::ALL_SOUND_OFF => {
-                self.panic = true
-            }
+            NoteEvent::MidiCC { cc, .. } if cc == control_change::ALL_SOUND_OFF => self.panic(),
             NoteEvent::MidiCC { cc, .. } if cc == control_change::ALL_NOTES_OFF => {
-                self.all_notes_off = true
+                self.all_notes_off()
             }
             _ => {}
+        }
+    }
+}
+
+/// This instrument's note laws, which `mxm_part_routing::PartState::resolve` applies.
+struct NoteLaws {
+    assignments: [PartAssignment; SLOT_COUNT],
+    claimed: u16,
+    /// The key each slot's model sits at its own concert pitch on, for a chromatic owner.
+    reference_key: [f32; SLOT_COUNT],
+}
+
+impl PartPolicy for NoteLaws {
+    fn accepts(&self, slot: usize, owner: NoteOwner) -> bool {
+        assignment_matches(
+            self.assignments[slot],
+            FIRST_KEY + slot as u8,
+            owner,
+            self.claimed,
+            FixedChannelCollision::ExcludeClaimed,
+        )
+    }
+
+    /// A total order, so host order never picks the owner: channel breaks the last tie, which
+    /// ID-less MIDI on several unclaimed channels reaches for one Kit key.
+    fn outranks(&self, candidate: NoteCandidate, current: NoteCandidate) -> bool {
+        (
+            candidate.owner.key,
+            candidate.strike.to_bits(),
+            candidate.owner.note_id,
+            candidate.owner.channel,
+        ) > (
+            current.owner.key,
+            current.strike.to_bits(),
+            current.owner.note_id,
+            current.owner.channel,
+        )
+    }
+
+    /// Combining is still required so that host event order cannot change the sound...
+    fn reduce(&self, accumulated: f32, next: f32) -> f32 {
+        f32::max(accumulated, next)
+    }
+
+    /// ...but the value this instrument uses is the winner's own: a hit is its own velocity, and a
+    /// note nobody can hear must not set the level of the one they can (owner, 2026-09-20).
+    fn sounding(&self, result: &ArbitrationResult) -> f32 {
+        result.owner_strike
+    }
+
+    /// A pitched model sits at its own concert pitch, so the keyboard plays it in tune; any other
+    /// is reached at note 60 (owner, 2026-09-18).
+    fn chromatic_pitch(&self, slot: usize, owner: NoteOwner) -> f32 {
+        if self.assignments[slot] == PartAssignment::FixedNote {
+            0.0
+        } else {
+            f32::from(owner.key) - self.reference_key[slot]
         }
     }
 }
@@ -410,15 +399,9 @@ impl MxmDrumMachine {
         // A local-event flood keeps only what no host order can change: a choke anywhere in the
         // group becomes panic; otherwise every owner releases expression and no tuning in the group
         // applies. Stored events still apply, which the superset already includes.
-        let overflow = events.local_overflow;
-        if events.panic || (overflow && events.any_choke) {
-            self.bend = [0.0; NUM_CHANNELS];
-            self.wheel = [0.0; NUM_CHANNELS];
-            self.pressure = [0.0; NUM_CHANNELS];
-            self.tuning = [0.0; SLOT_COUNT];
-            self.chromatic_pitch = [0.0; SLOT_COUNT];
-            self.owner = [None; SLOT_COUNT];
-            self.owns_expression = [false; SLOT_COUNT];
+        let overflow = events.overflowed();
+        if events.panicked() || (overflow && events.any_choke()) {
+            self.parts.panic();
             return ResolvedEvents {
                 triggers: TriggerGroup::new(),
                 chokes: u16::MAX,
@@ -426,135 +409,31 @@ impl MxmDrumMachine {
             };
         }
 
-        for channel in 0..NUM_CHANNELS {
-            if let Some(value) = events.bend[channel] {
-                self.bend[channel] = value;
-            }
-            if let Some(value) = events.wheel[channel] {
-                self.wheel[channel] = value;
-            }
-            if let Some(value) = events.pressure[channel] {
-                self.pressure[channel] = value;
-            }
-        }
-
         let assignments = self.midi_assignments();
-        let claimed = claimed_channels(&assignments);
-        let release_all = events.all_notes_off || overflow;
-        // A same-offset choke removes every NoteOn it matches before any slot arbitrates. That
-        // depends on the note alone, so it runs once per group rather than once per slot.
-        let mut strikes = events.note_ons;
-        if events.any_choke {
-            strikes.retain(|owner| {
-                !events.local_events().any(
-                    |event| matches!(event, PartEvent::Choke(address) if address.matches(owner)),
-                )
-            });
-        }
+        let laws = NoteLaws {
+            assignments,
+            claimed: claimed_channels(&assignments),
+            reference_key: std::array::from_fn(|slot| {
+                ModelId::new(self.params.slots[slot].model.value().clamp(0, 255) as u8)
+                    .chromatic_reference_key()
+            }),
+        };
+        let flags = ResolveFlags {
+            release_all: events.all_notes_off_requested() || overflow,
+            apply_tunings: !overflow,
+        };
+        let parts = self.parts.resolve(events, &laws, flags);
         let mut resolved = ResolvedEvents {
             triggers: TriggerGroup::new(),
             chokes: 0,
             panic: false,
         };
-
-        for (slot, &assignment) in assignments.iter().enumerate() {
-            let accepts_owner = |owner: NoteOwner| {
-                assignment_matches(
-                    assignment,
-                    36 + slot as u8,
-                    owner,
-                    claimed,
-                    FixedChannelCollision::ExcludeClaimed,
-                )
-            };
-
-            // The stored owner is matched on its own terms, not through the current assignment.
-            // A winning owner addresses its hit until choke, retrigger or panic, and reassigning
-            // the slot's MIDI channel while the tail rings must not strand that note beyond the
-            // reach of its own NoteOff, tuning or choke. `accepts_owner` governs which *new*
-            // strikes this slot will admit, below, and nothing else.
-            if let Some(owner) = self.owner[slot] {
-                let (mut choked, mut released, mut tuning) = (false, false, None);
-                for event in events.local_events() {
-                    match event {
-                        PartEvent::Choke(address) if address.matches(owner) => choked = true,
-                        PartEvent::Off(address) if address.matches(owner) => released = true,
-                        PartEvent::Tuning { address, semitones }
-                            if !overflow && address.matches(owner) =>
-                        {
-                            tuning = Some(semitones);
-                        }
-                        _ => {}
-                    }
-                }
-                // Reduced, not replayed, so host order cannot matter: a choke ends the hit even
-                // after its note was released; otherwise expression reaches the note before its
-                // same-offset release ends ownership, and the tail keeps its current pitch.
-                if choked {
-                    resolved.chokes |= 1 << slot;
-                    self.owner[slot] = None;
-                    self.owns_expression[slot] = false;
-                    self.tuning[slot] = 0.0;
-                } else {
-                    if let Some(semitones) = tuning.filter(|_| self.owns_expression[slot]) {
-                        self.tuning[slot] = semitones;
-                    }
-                    if released {
-                        self.owns_expression[slot] = false;
-                    }
-                }
+        for slot in 0..SLOT_COUNT {
+            if parts.chokes[slot] {
+                resolved.chokes |= 1 << slot;
             }
-            if release_all {
-                self.owns_expression[slot] = false;
-            }
-
-            let winner = strikes.resolve(
-                accepts_owner,
-                // A total order, so host order never picks the owner: channel breaks the last tie,
-                // which ID-less MIDI on several unclaimed channels reaches for one Kit key.
-                |candidate, current| {
-                    (
-                        candidate.owner.key,
-                        candidate.strike.to_bits(),
-                        candidate.owner.note_id,
-                        candidate.owner.channel,
-                    ) > (
-                        current.owner.key,
-                        current.strike.to_bits(),
-                        current.owner.note_id,
-                        current.owner.channel,
-                    )
-                },
-                // Combining is still required so that host event order cannot change the sound,
-                // but the value this instrument uses is the winner's own: a hit is its own
-                // velocity, and a note nobody can hear must not set the level of the one they can
-                // (owner, 2026-09-20).
-                f32::max,
-            );
-
-            if let Some(winner) = winner {
-                let owner = winner.owner;
-                self.owner[slot] = Some(owner);
-                self.owns_expression[slot] = true;
-                self.slot_channel[slot] = owner.channel;
-                // A pitched model sits at its own concert pitch, so the keyboard plays it in tune;
-                // any other is reached at note 60 (owner, 2026-09-18; plan revision 40).
-                self.chromatic_pitch[slot] = if assignment == PartAssignment::FixedNote {
-                    0.0
-                } else {
-                    let model =
-                        ModelId::new(self.params.slots[slot].model.value().clamp(0, 255) as u8);
-                    f32::from(owner.key) - model.chromatic_reference_key()
-                };
-                self.tuning[slot] = 0.0;
-                for event in events.local_events().filter(|_| !overflow) {
-                    if let PartEvent::Tuning { address, semitones } = event
-                        && address.matches(owner)
-                    {
-                        self.tuning[slot] = semitones;
-                    }
-                }
-                resolved.triggers.push(slot, winner.owner_strike);
+            if let Some(strike) = parts.strikes[slot] {
+                resolved.triggers.push(slot, strike);
             }
         }
         resolved
@@ -700,7 +579,7 @@ impl MxmDrumMachine {
         let any_solo = self.params.slots.iter().any(|slot| slot.solo.value());
         let slots = std::array::from_fn(|index| {
             let params = &self.params.slots[index];
-            let channel = self.slot_channel[index] as usize % NUM_CHANNELS;
+            let channel = self.parts.channel(index) as usize % NUM_CHANNELS;
             let level = params.level.smoothed.next();
             let audible = slot_is_audible(params, any_solo);
             // The general controls on the paths the named ones took (`params::control`). Controls
@@ -711,10 +590,10 @@ impl MxmDrumMachine {
                 // Channel bend is fixed at ±2 semitones in this first slice; per-note tuning is
                 // already delivered by CLAP in semitones.
                 pitch_semitones: (c.get(control::TUNE).smoothed.next()
-                    + self.chromatic_pitch[index]
-                    + 2.0 * self.bend[channel]
-                    + self.tuning[index])
-                    .clamp(-48.0, 48.0),
+                    + self.parts.chromatic_pitch(index)
+                    + 2.0 * self.parts.bend(channel)
+                    + self.parts.tuning(index))
+                .clamp(-48.0, 48.0),
                 pitch_envelope: c.get(control::PITCH_ENV).smoothed.next(),
                 pitch_decay: c.get(control::PITCH_DECAY).smoothed.next(),
                 decay: c.get(control::DECAY).smoothed.next(),
@@ -751,10 +630,12 @@ impl MxmDrumMachine {
                 self.params.lfo3_shape.value().dsp(),
             ],
             wheel: std::array::from_fn(|slot| {
-                self.wheel[self.slot_channel[slot] as usize % NUM_CHANNELS]
+                self.parts
+                    .wheel(self.parts.channel(slot) as usize % NUM_CHANNELS)
             }),
             pressure: std::array::from_fn(|slot| {
-                self.pressure[self.slot_channel[slot] as usize % NUM_CHANNELS]
+                self.parts
+                    .pressure(self.parts.channel(slot) as usize % NUM_CHANNELS)
             }),
         };
         (slots, modulation, self.params.master.smoothed.next())
@@ -936,14 +817,7 @@ impl Plugin for MxmDrumMachine {
 
     fn reset(&mut self) {
         self.engine.reset();
-        self.bend = [0.0; NUM_CHANNELS];
-        self.wheel = [0.0; NUM_CHANNELS];
-        self.pressure = [0.0; NUM_CHANNELS];
-        self.slot_channel = [0; SLOT_COUNT];
-        self.tuning = [0.0; SLOT_COUNT];
-        self.chromatic_pitch = [0.0; SLOT_COUNT];
-        self.owner = [None; SLOT_COUNT];
-        self.owns_expression = [false; SLOT_COUNT];
+        self.parts = PartState::new();
         self.engine
             .reset_output_destinations(&self.output_destinations());
     }
@@ -1230,13 +1104,13 @@ mod tests {
             resolved.triggers, expected,
             "the chord struck with a note nobody can hear"
         );
-        assert_eq!(plugin.owner[5].unwrap().key, 64);
+        assert_eq!(plugin.parts.owner(5).unwrap().key, 64);
         // Slot 6's default model is a pitched tom, so key 64 is measured from its concert pitch.
         assert_eq!(
-            plugin.chromatic_pitch[5],
+            plugin.parts.chromatic_pitch(5),
             64.0 - ModelId::new(20).chromatic_reference_key()
         );
-        assert_eq!(plugin.tuning[5], 0.35);
+        assert_eq!(plugin.parts.tuning(5), 0.35);
 
         let mut reversed_plugin = MxmDrumMachine::default();
         // SAFETY: exclusive test ownership; no process or GUI thread exists.
@@ -1257,8 +1131,8 @@ mod tests {
         reversed.collect(note_on_as(0, 64, Some(3), 0.2));
         let reversed_resolved = reversed_plugin.resolve_events(&reversed);
         assert_eq!(reversed_resolved.triggers, resolved.triggers);
-        assert_eq!(reversed_plugin.owner[5], plugin.owner[5]);
-        assert_eq!(reversed_plugin.tuning[5], plugin.tuning[5]);
+        assert_eq!(reversed_plugin.parts.owner(5), plugin.parts.owner(5));
+        assert_eq!(reversed_plugin.parts.tuning(5), plugin.parts.tuning(5));
     }
 
     #[test]
@@ -1283,7 +1157,7 @@ mod tests {
                 events.collect(second);
             }
             let _ = plugin.resolve_events(&events);
-            plugin.owner[0].unwrap()
+            plugin.parts.owner(0).unwrap()
         };
         assert_eq!(owner_for(false), owner_for(true));
         assert_eq!(owner_for(false).note_id, Some(i32::MIN));
@@ -1380,7 +1254,7 @@ mod tests {
             key: Key::Number(60),
         });
         assert_eq!(plugin.resolve_events(&choke).chokes, 0);
-        assert_eq!(plugin.owner[0].unwrap().note_id, Some(11));
+        assert_eq!(plugin.parts.owner(0).unwrap().note_id, Some(11));
     }
 
     #[test]
@@ -1462,7 +1336,7 @@ mod tests {
         ] {
             let mut kit = MxmDrumMachine::default();
             let _ = kit.resolve_events(&group([note_on(36, 0.8)]));
-            assert!(kit.owner[0].is_some(), "the Kit note must own slot 0");
+            assert!(kit.parts.owner(0).is_some(), "the Kit note must own slot 0");
             // SAFETY: exclusive test ownership; no process or GUI thread exists.
             unsafe {
                 kit.params.slots[0]
@@ -1477,7 +1351,7 @@ mod tests {
                 );
             } else {
                 assert!(
-                    !kit.owns_expression[0],
+                    !kit.parts.owns_expression(0),
                     "{label} did not release expression after the slot was reassigned"
                 );
             }
@@ -1494,7 +1368,8 @@ mod tests {
         };
         let _ = kit.resolve_events(&group([poly_tuning(0, 36, None, 0.5)]));
         assert_ne!(
-            kit.tuning[0], 0.0,
+            kit.parts.tuning(0),
+            0.0,
             "tuning did not reach the tail after the slot was reassigned"
         );
     }
@@ -1519,7 +1394,7 @@ mod tests {
             let mut kit = MxmDrumMachine::default();
             let _ = kit.resolve_events(&group([strike]));
             let _ = kit.resolve_events(&group([release]));
-            assert!(!kit.owns_expression[slot]);
+            assert!(!kit.parts.owns_expression(slot));
             assert_eq!(kit.resolve_events(&group([choke])).chokes, 1 << slot);
         }
 
@@ -1528,7 +1403,8 @@ mod tests {
         let _ = chromatic.resolve_events(&group([note_off(1, 64, Some(5))]));
         let _ = chromatic.resolve_events(&group([poly_tuning(1, 64, Some(5), 0.5)]));
         assert_eq!(
-            chromatic.tuning[4], 0.0,
+            chromatic.parts.tuning(4),
+            0.0,
             "released expression still followed its note"
         );
         assert_eq!(
@@ -1562,8 +1438,8 @@ mod tests {
             }
             let _ = plugin.resolve_events(&group(strikes));
             (
-                plugin.owner[0],
-                plugin.slot_channel[0],
+                plugin.parts.owner(0),
+                plugin.parts.channel(0),
                 plugin.next_frame().0[0].pitch_semitones,
             )
         };
@@ -1583,9 +1459,9 @@ mod tests {
             let chokes = plugin.resolve_events(&group(events)).chokes;
             (
                 chokes,
-                plugin.tuning[0],
-                plugin.owner[0],
-                plugin.owns_expression[0],
+                plugin.parts.tuning(0),
+                plugin.parts.owner(0),
+                plugin.parts.owns_expression(0),
             )
         };
         let choked = resolve(choke(0, 60, Some(9)), false);
@@ -1609,7 +1485,7 @@ mod tests {
         let resolved = plugin.resolve_events(&group(flood));
         assert!(!resolved.panic);
         assert_eq!(resolved.chokes, 0);
-        assert!(!plugin.owns_expression[0]);
+        assert!(!plugin.parts.owns_expression(0));
         assert_eq!(
             plugin.resolve_events(&group([choke(0, 36, None)])).chokes,
             1

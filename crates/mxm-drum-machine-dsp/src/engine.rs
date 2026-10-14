@@ -16,17 +16,15 @@ use crate::reset_vco_909::{
 use crate::rim_clave::{Kind as RimClaveKind, Patch as RimClavePatch, RimClave};
 use crate::routing::{self, Graph, Routing, Sources};
 use crate::twin_mode_snare::{Patch as SnarePatch, TwinModeSnare};
+pub use mxm_drum_engine::{CHOKE_GROUP_MAX, LfoShape, ModulationPatch, OutputFrame, TriggerGroup};
+use mxm_drum_engine::{LFO_SEEDS, Lfo, OUTPUT_TRANSFER_SECONDS, RANDOM_SEED, hash_bipolar};
 use mxm_dsp::guard::finite_or;
 use mxm_modulation::standard;
 use mxm_part_routing::{Destination, DestinationRouter};
-use mxm_rng::{Xorshift64, map};
+use mxm_rng::Xorshift64;
 
-const RANDOM_SEED: u64 = 0x243f_6a88_85a3_08d3;
 const SNARE_NOISE_SEED: u64 = 0x1319_8a2e_0370_7344;
 
-/// Highest assignable choke group; 0 means the slot is in none.
-pub const CHOKE_GROUP_MAX: u8 = 16;
-const OUTPUT_TRANSFER_SECONDS: f32 = 0.002;
 /// CHOSEN length of the shared/private metallic-bank crossfade. Long enough that six decorrelated
 /// square pairs cross without a step, short enough to read as immediate under automation. Replace
 /// it from a click/latency measurement on a Pitch automation ramp through the reference detent.
@@ -36,22 +34,6 @@ pub(crate) const METAL_TRANSITION_SECONDS: f32 = 0.005;
 /// the duration by click/latency measurement; this is short enough to feel immediate under
 /// selector automation and long enough to bury the step. Replace it from that measurement.
 const MODEL_RETIRE_SECONDS: f32 = 0.005;
-
-/// Main stereo plus the sixteen mono individual destinations for one sample.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct OutputFrame {
-    pub main: [f32; 2],
-    pub individual: [f32; SLOT_COUNT],
-}
-
-impl Default for OutputFrame {
-    fn default() -> Self {
-        Self {
-            main: [0.0; 2],
-            individual: [0.0; SLOT_COUNT],
-        }
-    }
-}
 
 /// Static output adaptation outside the modelled circuits. Each value brings one isolated reference
 /// hit at 48 kHz, zero deviation and velocity 0.82 to a −1 dBFS mono peak. This is peak consistency
@@ -86,114 +68,6 @@ fn reference_output_trim(model: ModelId) -> f32 {
         .get(usize::from(model.raw()))
         .copied()
         .unwrap_or(1.0)
-}
-
-/// Shapes shared by the three kit-wide free-running modulation oscillators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LfoShape {
-    #[default]
-    Sine,
-    Triangle,
-    RampUp,
-    RampDown,
-    Square,
-    SampleHold,
-}
-
-/// Global/per-slot performed sources for one sample.
-#[derive(Debug, Clone, Copy)]
-pub struct ModulationPatch {
-    pub lfo_rate_hz: [f32; 3],
-    pub lfo_shape: [LfoShape; 3],
-    pub wheel: [f32; SLOT_COUNT],
-    pub pressure: [f32; SLOT_COUNT],
-}
-
-impl Default for ModulationPatch {
-    fn default() -> Self {
-        Self {
-            lfo_rate_hz: [0.7, 1.3, 4.0],
-            lfo_shape: [LfoShape::Sine, LfoShape::Triangle, LfoShape::Sine],
-            wheel: [0.0; SLOT_COUNT],
-            pressure: [0.0; SLOT_COUNT],
-        }
-    }
-}
-
-/// Fixed seeds, one per kit-wide LFO.
-///
-/// **Distinct, because three LFOs sharing a seed are one LFO.** Sample and hold is the only shape
-/// that reads them, and three identical pseudo-random streams would step together for ever.
-const LFO_SEEDS: [u64; 3] = [
-    0x2545_F491_4F6C_DD1D,
-    0x1319_8A2E_0370_7344,
-    0x5851_F42D_4C95_7F2D,
-];
-
-#[derive(Debug, Clone, Copy)]
-struct Lfo {
-    phase: f64,
-    held: f32,
-    /// The sample-and-hold sequence, advanced once per cycle.
-    noise: Xorshift64,
-    /// What `noise` returns to on [`Self::reset`], so a reset is deterministic.
-    seed: u64,
-}
-
-impl Lfo {
-    fn new(seed: u64) -> Self {
-        let mut lfo = Self {
-            phase: 0.0,
-            held: 0.0,
-            noise: Xorshift64::from_state(seed),
-            seed,
-        };
-        lfo.draw();
-        lfo
-    }
-
-    /// Advances the sample-and-hold sequence and takes its next value.
-    ///
-    /// **Its own generator, not a hash of the phase.** The phase after a wrap is a *small*
-    /// remainder, and `hash_bipolar` keeps the exponent and the top mantissa bits — precisely the
-    /// bits that barely move between cycles. Measured, it emitted 0.0 for the first cycle and then
-    /// about −0.509 for ever, varying in the fourth decimal: a DC offset rather than modulation,
-    /// which is what the owner heard as "the decay does not change" (2026-09-22). A drawn value
-    /// is also why a slot is modulated from its very first hit rather than after one full cycle.
-    fn draw(&mut self) {
-        self.held = hash_bipolar(self.noise.next_u64());
-    }
-
-    fn tick(&mut self, rate_hz: f32, shape: LfoShape, sample_rate: f32) -> f32 {
-        let phase = self.phase as f32;
-        let value = match shape {
-            LfoShape::Sine => (std::f32::consts::TAU * phase).sin(),
-            LfoShape::Triangle => 4.0 * (phase - (phase + 0.5).floor()).abs() - 1.0,
-            LfoShape::RampUp => 2.0 * phase - 1.0,
-            LfoShape::RampDown => 1.0 - 2.0 * phase,
-            LfoShape::Square => {
-                if phase < 0.5 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            }
-            LfoShape::SampleHold => self.held,
-        };
-        let rate = finite_or(rate_hz, 1.0).clamp(0.01, 40.0) as f64;
-        let previous = self.phase;
-        self.phase = (self.phase + rate / f64::from(sample_rate)).fract();
-        if self.phase < previous {
-            self.draw();
-        }
-        value
-    }
-
-    fn reset(&mut self) {
-        self.phase = 0.0;
-        self.noise = Xorshift64::from_state(self.seed);
-        self.draw();
-    }
 }
 
 /// Complete plain-value patch for one slot and one sample.
@@ -606,41 +480,6 @@ impl Slot {
     }
 }
 
-/// Trigger assertions collected at one sample offset. One bit/velocity per slot, no allocation.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TriggerGroup {
-    velocities: [f32; SLOT_COUNT],
-    mask: u16,
-}
-
-impl Default for TriggerGroup {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TriggerGroup {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            velocities: [0.0; SLOT_COUNT],
-            mask: 0,
-        }
-    }
-
-    pub fn push(&mut self, slot: usize, velocity: f32) {
-        if slot < SLOT_COUNT && velocity.is_finite() && velocity > 0.0 {
-            self.mask |= 1 << slot;
-            self.velocities[slot] = self.velocities[slot].max(velocity.clamp(0.0, 1.0));
-        }
-    }
-
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.mask == 0
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Engine {
     slots: [Slot; SLOT_COUNT],
@@ -846,14 +685,14 @@ impl Engine {
         // player actually wants when the open hat is an 808 and the closed one a 909.
         let mut struck_groups: u32 = 0;
         for (index, patch) in patches.iter().enumerate() {
-            if triggers.mask & (1 << index) != 0 && patch.choke_group != 0 {
+            if triggers.mask() & (1 << index) != 0 && patch.choke_group != 0 {
                 struck_groups |= 1 << patch.choke_group.min(CHOKE_GROUP_MAX);
             }
         }
         if struck_groups != 0 {
             let retire_step = self.retire_step();
             for (index, (slot, patch)) in self.slots.iter_mut().zip(patches).enumerate() {
-                if triggers.mask & (1 << index) != 0 || patch.choke_group == 0 {
+                if triggers.mask() & (1 << index) != 0 || patch.choke_group == 0 {
                     continue;
                 }
                 if struck_groups & (1 << patch.choke_group.min(CHOKE_GROUP_MAX)) != 0 {
@@ -862,20 +701,20 @@ impl Engine {
             }
         }
         for (index, (slot, patch)) in self.slots.iter_mut().zip(patches).enumerate() {
-            if triggers.mask & (1 << index) == 0 {
+            if triggers.mask() & (1 << index) == 0 {
                 continue;
             }
             // A hit is its own velocity, whatever else is struck on the same sample. The hardware's
             // common and global accent buses are deliberately not modelled: this instrument has no
             // accent control and one slot's level never depends on another's. Host event order
             // therefore cannot reach the result either.
-            let common_accent = triggers.velocities[index];
+            let common_accent = triggers.velocity(index);
             // A hit on a slot whose previous circuit is still fading ends that fade: the
             // selected model owns this trigger, and the two never share voice state.
             if slot.retire_gain > 0.0 {
                 slot.finish_retire();
             }
-            slot.velocity = triggers.velocities[index];
+            slot.velocity = triggers.velocity(index);
             slot.random = hash_bipolar(self.random_state.next_u64());
             // **The strike reads the routed patch** (2026-10-07). Several circuits read a control
             // only here — Attack, Soft hits and Noise on models 1–10, the pitch of a struck tone —
@@ -901,7 +740,7 @@ impl Engine {
             if let Some(captures) = &self.captures {
                 slot.capture_voice.trigger(
                     captures.slot(index),
-                    crate::velocity::curve(triggers.velocities[index], patch.dynamics),
+                    crate::velocity::curve(triggers.velocity(index), patch.dynamics),
                     patch.decay,
                     crate::capture::Retrigger::Restart,
                     self.sample_rate,
@@ -1077,11 +916,9 @@ impl Engine {
         // two did not move `drum_machine_cpu_cost` beyond its run-to-run spread; the third follows
         // the same law rather than quietly meaning something different while nothing listens.
         let lfo: [f32; 3] = std::array::from_fn(|index| {
-            self.lfos[index].tick(
-                modulation.lfo_rate_hz[index],
-                modulation.lfo_shape[index],
-                self.sample_rate,
-            )
+            let value = self.lfos[index].value(modulation.lfo_shape[index]);
+            self.lfos[index].advance(modulation.lfo_rate_hz[index], self.sample_rate);
+            value
         });
 
         // The source is a machine-level free-running transistor-noise approximation. Advance it
@@ -1456,13 +1293,6 @@ fn apply_routes(patch: &mut SlotPatch, graph: &Graph, routing: &Routing) {
         routing::AMPLITUDE_BOUND,
     ));
     patch.pan = (patch.pan + graph.sum(routing::target::PAN, routing, 2.0)).clamp(-1.0, 1.0);
-}
-
-#[inline]
-/// One Random draw per hit: `standard::random` of a uniform draw.
-fn hash_bipolar(bits: u64) -> f32 {
-    let unit = map::unit_f32_closed((bits >> 32) as u32);
-    standard::random(unit)
 }
 
 /// The 808 low-tom pink tail's one-pole coefficient at one sample rate. Called from activation and
@@ -3081,7 +2911,8 @@ mod sample_hold {
         let mut seen = Vec::new();
         let mut last = f32::NAN;
         for _ in 0..(48_000 * 120) {
-            let value = lfo.tick(rate, LfoShape::SampleHold, 48_000.0);
+            let value = lfo.value(LfoShape::SampleHold);
+            lfo.advance(rate, 48_000.0);
             if value != last {
                 seen.push(value);
                 last = value;
@@ -3122,7 +2953,8 @@ mod sample_hold {
         // It used to sit at exactly zero until the first cycle wrapped — at a slow synced
         // division that is many seconds of a route doing nothing at all.
         let mut lfo = Lfo::new(LFO_SEEDS[0]);
-        let first = lfo.tick(0.25, LfoShape::SampleHold, 48_000.0);
+        let first = lfo.value(LfoShape::SampleHold);
+        lfo.advance(0.25, 48_000.0);
         assert!(
             first != 0.0,
             "sample and hold began at exact zero, so a slow LFO modulates nothing until it wraps"
