@@ -37,8 +37,9 @@ pub use mxm_preset::PresetUi;
 /// The opening size: the quarter-4K budget, hugged. MEASURED by
 /// `the_opening_size_is_the_budget_hugged`, which fails with the size it should be — it was
 /// (1600, 850) by hand, which opened 320 px narrower and 124 px taller than the panel wanted; it fell
-/// again on 2026-10-07, when the kick at Init stopped drawing the Noise knobs it does not read.
-const REFERENCE: (u32, u32) = (1755, 1042);
+/// again on 2026-10-07, when the kick at Init stopped drawing the Noise knobs it does not read, and
+/// grew on 2026-10-14, when each slot's number became its name box.
+const REFERENCE: (u32, u32) = (1848, 1042);
 /// The smallest window this editor advertises: the wider of the widest card with the workspace's
 /// gutters and the app bar at its last compact step, Resample and Export samples in its `…` menu.
 /// The bar decides it, and `the_app_bar_holds_in_the_minimum_window` measures it; the card alone
@@ -60,7 +61,26 @@ const RESAMPLE_CARD: u64 = 65;
 /// less the card's chrome and the row's number, Mute, Solo and spacing.
 const SLOT_MODEL_MIN: f32 = 140.0;
 /// The slot number's box, before the model button.
-const SLOT_NUMBER_WIDTH: f32 = 24.0;
+/// The keys of the slots' name boxes in the keyboard cursor's registry, one a slot. Not
+/// parameters: a name is the song's state (`crate::slot_names`).
+pub const SLOT_NAME_KEYS: [&str; SLOT_COUNT] = [
+    "slot_name_1",
+    "slot_name_2",
+    "slot_name_3",
+    "slot_name_4",
+    "slot_name_5",
+    "slot_name_6",
+    "slot_name_7",
+    "slot_name_8",
+    "slot_name_9",
+    "slot_name_10",
+    "slot_name_11",
+    "slot_name_12",
+    "slot_name_13",
+    "slot_name_14",
+    "slot_name_15",
+    "slot_name_16",
+];
 /// A slot row's frame margin, left and right.
 const SLOT_MARGIN: f32 = 2.0;
 /// The Model card's mechanism display is this tall and fills the card's width.
@@ -213,6 +233,8 @@ impl mxm_editor::Panel for MxmDrumMachineApp {
             &mut self.nav,
             self.spawn.as_ref(),
         );
+        // A name typed, or emptied by a kit load or Init: the host hears of it.
+        crate::slot_names::announce(&self.params, context);
     }
 }
 
@@ -870,6 +892,7 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
             live.selected_slot,
             live.peaks[index],
             setter,
+            live.entries,
             live.text_editing,
         ),
         Leaf::Rate(index) => {
@@ -994,13 +1017,115 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
 /// [`MIN_TARGET`] tall.
 fn slot_row_min_width(ui: &Ui) -> f32 {
     2.0 * SLOT_MARGIN
-        + SLOT_NUMBER_WIDTH
+        + slot_name_width(ui)
         + SLOT_MODEL_MIN
         + 2.0 * mxm_ui::control::toggle_compact_size().x
         + 3.0 * ui.spacing().item_spacing.x
 }
 
-/// One slot's inventory row: its number, its model — a button that selects the slot for editing —
+/// The name box's width: about eight letters of the button's text, measured, so a name like
+/// `subkick` shows whole and a longer one is cut (its hover shows it all).
+fn slot_name_width(ui: &Ui) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let letters = ui.ctx().fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap("oooooooo".to_owned(), font, egui::Color32::PLACEHOLDER)
+            .rect
+            .width()
+    });
+    letters + 2.0 * ui.spacing().button_padding.x
+}
+
+/// One slot's name box: what the slot is called (`slot_names::shown`), or its number when nothing
+/// names it. Double-click it, or press OPEN with the cursor on it, to type a name; Enter keeps it,
+/// Escape (BACK) cancels, and an empty name brings back the one the slot is given. Returns the box
+/// while it isn't being typed in, so a click on it selects the slot as the model's button does.
+fn slot_name_box(
+    ui: &mut Ui,
+    params: &MxmDrumMachineParams,
+    index: usize,
+    entries: &mut HashMap<&'static str, Option<String>>,
+    text_editing: bool,
+) -> Option<egui::Response> {
+    let key = SLOT_NAME_KEYS[index];
+    let size = egui::vec2(slot_name_width(ui), MIN_TARGET);
+    if let Some(Some(buffer)) = entries.get_mut(key) {
+        let id = ui.make_persistent_id(key);
+        let response = ui.add_sized(
+            size,
+            egui::TextEdit::singleline(buffer)
+                .id(id)
+                .char_limit(crate::slot_names::NAME_CHARS),
+        );
+        // The frame it opens in, it takes the keyboard with the whole name selected, so typing
+        // replaces it.
+        if ui
+            .ctx()
+            .data_mut(|d| d.remove_temp::<bool>(id.with("opened")))
+            .is_some()
+        {
+            response.request_focus();
+            let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+            let end = egui::text::CCursor::new(buffer.chars().count());
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    end,
+                )));
+            state.store(ui.ctx(), id);
+        } else if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            entries.insert(key, None);
+        } else if response.lost_focus() {
+            let typed = buffer.clone();
+            crate::slot_names::set(params, index, &typed);
+            entries.insert(key, None);
+        }
+        return None;
+    }
+
+    let shown = crate::slot_names::shown(params)[index].clone();
+    let text = shown.clone().unwrap_or_else(|| format!("{:02}", index + 1));
+    let response = mxm_ui::navigation::at(ui, key, |ui| {
+        let response = ui
+            .add_enabled_ui(!text_editing, |ui| {
+                ui.add_sized(size, egui::Button::new(text).frame(false).truncate())
+            })
+            .inner;
+        mxm_ui::navigation::mark(ui, &response, response.rect);
+        response
+    });
+    let response = response.on_hover_text(slot_name_hover(params, index, shown.as_deref()));
+    let open = response.double_clicked()
+        || (response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+    if open && !text_editing {
+        let id = ui.make_persistent_id(key);
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(id.with("opened"), true));
+        entries.insert(key, Some(shown.unwrap_or_default()));
+    }
+    Some(response)
+}
+
+/// The name box's hover: the whole name, then which slot and which key, or the channel a chromatic
+/// slot plays every key of.
+fn slot_name_hover(params: &MxmDrumMachineParams, index: usize, shown: Option<&str>) -> String {
+    let slot = format!("Slot {:02}", index + 1);
+    let plays = match mxm_part_routing::PartAssignment::from_parameter(
+        params.slots[index].midi_channel.value(),
+    ) {
+        mxm_part_routing::PartAssignment::FixedNote => {
+            format!("note {}", u16::from(crate::FIRST_KEY) + index as u16)
+        }
+        mxm_part_routing::PartAssignment::Channel(channel) => {
+            format!("every note on Ch {}", channel + 1)
+        }
+    };
+    let name = shown.map_or_else(String::new, |name| format!("{name}\n"));
+    format!("{name}{slot}, {plays}. Double-click to name it.")
+}
+
+/// One slot's inventory row: its name, its model — a button that selects the slot for editing —
 /// and its Mute and Solo, in a frame that carries the selection's fill. The activity bar and the
 /// selection's outline and rail are painted over it. [`slot_row_min_width`] states its size.
 #[allow(clippy::too_many_arguments)]
@@ -1012,6 +1137,7 @@ fn slot_row(
     selected_slot: &mut usize,
     peak: f32,
     setter: &ParamSetter<'_>,
+    entries: &mut HashMap<&'static str, Option<String>>,
     text_editing: bool,
 ) {
     let name = model_name(params.slots[index].model_id());
@@ -1019,10 +1145,11 @@ fn slot_row(
     let row = slot_frame(tokens, selected).show(ui, |ui| {
         ui.horizontal(|ui| {
             let slot = &params.slots[index];
-            ui.add_sized(
-                egui::vec2(SLOT_NUMBER_WIDTH, MIN_TARGET),
-                egui::Label::new(egui::RichText::new(format!("{:02}", index + 1)).monospace()),
-            );
+            if slot_name_box(ui, params, index, entries, text_editing)
+                .is_some_and(|response| response.clicked())
+            {
+                *selected_slot = index;
+            }
             // What still follows the model, the number having taken its own box and gap: Mute and
             // Solo, and the gap before each — `slot_row_min_width`'s terms.
             let controls =
@@ -2581,10 +2708,12 @@ mod tests {
         let mut state = editor_state(&params);
         let owned = keyboard_reachable_ids(&params);
         let reachable: Vec<&str> = owned.iter().map(String::as_str).collect();
-        keyboard_checks::the_cursor_reaches_and_operates(
+        // The cursor opens on slot 1's name, which is no parameter: the edit is proved on its Mute.
+        keyboard_checks::the_cursor_reaches_and_operates_from(
             egui::vec2(REFERENCE.0 as f32, REFERENCE.1 as f32),
             &test_items(),
             keyboard_checks::Coverage::Within(&reachable),
+            slot_ids(0)[at::MUTE],
             &REVEAL,
             &recorder,
             &mut drive(&params, &telemetry, &setter, &mut state),
@@ -2637,7 +2766,8 @@ mod tests {
         let unknown: Vec<&String> = found.iter().filter(|id| !owned.contains(id)).collect();
         assert!(
             unknown.is_empty(),
-            "the registry names {unknown:?}, which are not parameters of this plugin"
+            "the registry names {unknown:?}, which are neither parameters of this plugin nor its \
+             slots' names"
         );
     }
 
@@ -2698,7 +2828,80 @@ mod tests {
             .map(str::to_owned)
             .collect();
         ids.push(KIT_OUTPUTS_ID.to_owned());
+        // Each slot's name box: not a parameter, but in the cursor's reach.
+        ids.extend(SLOT_NAME_KEYS.iter().map(|key| (*key).to_owned()));
         ids
+    }
+
+    /// OPEN on a slot's name box types a name over the one it is given; Enter keeps it. BACK
+    /// cancels one, and an empty one gives the slot its name back. Pressing jobs, as the language
+    /// does, with the cursor put on the box as a click puts it.
+    #[test]
+    fn open_on_a_slots_name_types_a_name_and_back_cancels_one() {
+        use keyboard_checks::{Job, key_of, press};
+        let params = MxmDrumMachineParams::default();
+        let telemetry = Telemetry::default();
+        let recorder = Arc::new(keyboard_checks::Recorder::default());
+        let setter = ParamSetter::new(recorder.as_ref());
+        let mut state = editor_state(&params);
+        let mut panel = drive(&params, &telemetry, &setter, &mut state);
+        let session =
+            keyboard_checks::Session::new(egui::vec2(REFERENCE.0 as f32, REFERENCE.1 as f32));
+        let none = egui::Modifiers::NONE;
+        let open = key_of(Job::from_name("open").unwrap());
+        let back = key_of(Job::Back);
+        // The registry is the last frame's, so the box is looked for once the frames settle.
+        fn to_the_box(session: &keyboard_checks::Session, panel: &mut impl FnMut(&mut Ui)) {
+            session.settle(panel);
+            let none = egui::Modifiers::NONE;
+            let spot = mxm_ui::navigation::spots(session.context())
+                .into_iter()
+                .find(|spot| spot.key == SLOT_NAME_KEYS[0])
+                .expect("slot 1's name box is on the opening page");
+            let at = spot.rect.center();
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: none,
+            };
+            session.frame(panel, vec![egui::Event::PointerMoved(at), button(true)]);
+            session.frame(panel, vec![button(false)]);
+            session.frame(panel, Vec::new());
+        }
+        let typed = |text: &str| vec![egui::Event::Text(text.to_owned())];
+
+        to_the_box(&session, &mut panel);
+        session.frame(&mut panel, press(open, none));
+        session.frame(&mut panel, Vec::new());
+        session.frame(&mut panel, typed("subkick"));
+        session.frame(&mut panel, press(egui::Key::Enter, none));
+        session.frame(&mut panel, Vec::new());
+        assert_eq!(params.slot_names.read().unwrap()[0], "subkick");
+
+        to_the_box(&session, &mut panel);
+        session.frame(&mut panel, press(open, none));
+        session.frame(&mut panel, Vec::new());
+        session.frame(&mut panel, typed("crack"));
+        session.frame(&mut panel, press(back, none));
+        session.frame(&mut panel, Vec::new());
+        assert_eq!(
+            params.slot_names.read().unwrap()[0],
+            "subkick",
+            "BACK keeps nothing"
+        );
+
+        to_the_box(&session, &mut panel);
+        session.frame(&mut panel, press(open, none));
+        session.frame(&mut panel, Vec::new());
+        session.frame(&mut panel, press(egui::Key::Backspace, none));
+        session.frame(&mut panel, press(egui::Key::Enter, none));
+        session.frame(&mut panel, Vec::new());
+        assert_eq!(
+            crate::slot_names::shown(&params)[0].as_deref(),
+            Some("bd1"),
+            "emptied, it is called what it is again"
+        );
     }
 
     /// Adding a source to a knob takes the first free route in one bracketed gesture — its source,
@@ -2984,6 +3187,7 @@ mod tests {
             id: ModelId::new(77),
             label: "Fixture metal",
             group: "Metal banks",
+            kind: mxm_drum_machine_dsp::model::Kind::Cymbal,
         });
         let (before, selected_before) = model_selector_ids(ModelId::new(94), &AVAILABLE_MODELS);
         let (after, selected_after) = model_selector_ids(ModelId::new(94), &fixture);

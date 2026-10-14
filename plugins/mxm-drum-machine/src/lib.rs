@@ -19,6 +19,7 @@ pub mod pack;
 pub mod params;
 pub mod preset;
 pub mod routes;
+pub mod slot_names;
 pub mod telemetry;
 
 use std::sync::Arc;
@@ -52,7 +53,7 @@ fn legacy_note(voice_id: VoiceID, channel: Channel, key: Key) -> (Option<i32>, u
 
 const INTERNAL_BLOCK: usize = 64;
 /// The Kit key slot 0 answers on; slot `n` answers on `FIRST_KEY + n`.
-const FIRST_KEY: u8 = 36;
+pub(crate) const FIRST_KEY: u8 = 36;
 const NUM_CHANNELS: usize = 16;
 const MAX_GROUP_NOTE_EVENTS: usize = 256;
 const DEV_VIEW_CC: u8 = 119;
@@ -739,6 +740,11 @@ impl Plugin for MxmDrumMachine {
         self.params.clone()
     }
 
+    /// The slot names a state holds, canonical before they are restored (`slot_names::filter`).
+    fn filter_state(state: &mut PluginState) {
+        slot_names::filter(&mut state.fields);
+    }
+
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Self::Editor> {
         // Captures are asked for through the ordinary parameter path — toggling Resample is a
         // parameter edit, `process` notices it and the capture thread picks it up with no editor
@@ -927,6 +933,12 @@ impl ClapPlugin for MxmDrumMachine {
         ClapFeature::Drum,
         ClapFeature::Stereo,
     ];
+
+    /// Each Kit slot's name on its key, so a host's drum lanes read as the slots do
+    /// (`slot_names::HostNames`).
+    fn note_names(&self) -> Option<Arc<dyn ClapNoteNames>> {
+        Some(Arc::new(slot_names::HostNames(self.params.clone())))
+    }
 }
 
 nice_export_clap!(MxmDrumMachine);

@@ -28,6 +28,7 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
   - [Card trees, floors and painted names](#card-trees-floors-and-painted-names)
   - [Presets and the audition kits](#presets-and-the-audition-kits)
   - [The fifty creative kits](#the-fifty-creative-kits)
+- [Slot names (2026-10-14)](#slot-names-2026-10-14)
 - [Resample is an instance setting, and the capture happens at activation](#resample-is-an-instance-setting-and-the-capture-happens-at-activation)
   - [Resample and Export samples live in the app bar](#resample-and-export-samples-live-in-the-app-bar)
   - [One capture per engage — a parameter edit while frozen renders nothing](#one-capture-per-engage--a-parameter-edit-while-frozen-renders-nothing)
@@ -1055,6 +1056,38 @@ Foundry's bank cowbell (about 0.5 dB), now untouched beside the hats it shares t
 >
 > This file, § Choke groups: *The machines' hardwired closed/open hat pairs are gone, nothing chokes
 > unless the user assigns it, and every factory kit and Init ships at `Off`.*
+
+## Slot names (2026-10-14)
+
+The owner tried newDAWn's drum lanes on this instrument: "The drum named does not match up between
+the tracker and the drum machine", and "There is also no way to name a drum in the drum machine".
+Then: "Would it not be better to make the software make a 'screen name' like bd1, and then give the
+user the ability to rename it to anything like bd1 -> subkick". Decided with the owner, from the
+options offered: the name in its own box first in the row; typed names the song's, which a kit load
+or Init give back to the made-up ones; tm, cg and bg for toms, congas and bongos (the DSP's
+`NOTES.md`, *Kinds and made-up names*).
+
+- **Why the song's and not the kit's**: a typed name describes the drum in that slot. Loading another
+  kit changes the drums, so a name kept across it would be wrong; a kit carrying text per slot would
+  also have needed the shared preset format to change. Changing one slot's model keeps its name: the
+  person may be trying a sound for the part they named.
+- **Why every write takes the dirty-only transaction**: names are a persistent field, which no
+  parameter event reports, so the host must be told the song changed (`mark_dirty`). A full GUI
+  `set_state` takes the plugin's lock and would stall `process()` (the fork's `PATCHES.md`,
+  *GUI-authored state dirty*, as mxm-fx-curve found). The same transaction makes the fork read the
+  note names again (*Note names*).
+- **Why `patch_replaced`**: the preset bar and browser load kits inside `mxm-preset` and report
+  nothing back, and `commit_preset_state` runs on Init only when Init carries content of its own,
+  which this instrument's doesn't. The kit's `Instrument::patch_replaced` runs after every
+  successful load and Init.
+- **What the host hears**: newDAWn reads note names for its tracker's drum lanes, preferring a
+  name for its note port and channel 0, then any channel. A Kit key sounds only on a channel no slot
+  claims (`mxm-part-routing`), so the names are given for exactly those channels; with none
+  claimed, one name for any channel. A chromatic slot plays every key of its channel, so no key is
+  its.
+- **The editor**: the slot number's box became the name box, so the slot cards grew and the opening
+  size with them (`the_opening_size_is_the_budget_hugged`). The keyboard check now proves its edit
+  on slot 1's Mute, since the cursor opens on slot 1's name, which is no parameter.
 
 ## Resample is an instance setting, and the capture happens at activation
 

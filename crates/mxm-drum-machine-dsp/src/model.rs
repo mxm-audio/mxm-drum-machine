@@ -153,6 +153,65 @@ pub struct ModelSpec {
     pub id: ModelId,
     pub label: &'static str,
     pub group: &'static str,
+    /// What kind of drum it is, which names the slot that plays it (`made_up_names`).
+    pub kind: Kind,
+}
+
+/// What kind of drum a model is. Its [`code`](Kind::code) is the start of a slot's made-up name:
+/// `bd1`, `sn1`, `ch1` (the owner, 2026-10-14). Every model has one, and it agrees with the last
+/// word of its label (`every_model_has_the_kind_its_label_names`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Kick,
+    Snare,
+    ClosedHat,
+    OpenHat,
+    /// A hat that is neither open nor closed: a noise hat.
+    Hat,
+    Tom,
+    Conga,
+    Bongo,
+    Rim,
+    Clave,
+    Clap,
+    Cowbell,
+    Cymbal,
+    Crash,
+    Ride,
+    Maraca,
+    Tambourine,
+    Guiro,
+    Bell,
+    Brush,
+}
+
+impl Kind {
+    /// The two letters a slot's made-up name starts with.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Kick => "bd",
+            Self::Snare => "sn",
+            Self::ClosedHat => "ch",
+            Self::OpenHat => "oh",
+            Self::Hat => "hh",
+            Self::Tom => "tm",
+            Self::Conga => "cg",
+            Self::Bongo => "bg",
+            Self::Rim => "rs",
+            Self::Clave => "cl",
+            Self::Clap => "cp",
+            Self::Cowbell => "cb",
+            Self::Cymbal => "cy",
+            Self::Crash => "cr",
+            Self::Ride => "rd",
+            Self::Maraca => "ma",
+            Self::Tambourine => "tb",
+            Self::Guiro => "gu",
+            Self::Bell => "be",
+            Self::Brush => "br",
+        }
+    }
 }
 
 /// Common creative axes that have an honest interpretation for one model.
@@ -363,471 +422,565 @@ pub const AVAILABLE_MODELS: [ModelSpec; 94] = [
         id: ModelId::DEEP_BRIDGE_KICK,
         label: "Deep bridge kick",
         group: "Bridge 808",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::TWIN_MODE_SNARE,
         label: "Twin-mode snare",
         group: "Bridge 808",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::LOW_FALLING_TOM,
         label: "Low falling tom",
         group: "Bridge 808",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::LOW_FALLING_CONGA,
         label: "Low falling conga",
         group: "Bridge 808",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::MID_FALLING_TOM,
         label: "Mid falling tom",
         group: "Bridge 808",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::MID_FALLING_CONGA,
         label: "Mid falling conga",
         group: "Bridge 808",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::HIGH_FALLING_TOM,
         label: "High falling tom",
         group: "Bridge 808",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::HIGH_FALLING_CONGA,
         label: "High falling conga",
         group: "Bridge 808",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::LAYERED_SHORT_RIM,
         label: "Layered short rim",
         group: "Bridge 808",
+        kind: Kind::Rim,
     },
     ModelSpec {
         id: ModelId::PURE_HIGH_CLAVE,
         label: "Pure high clave",
         group: "Bridge 808",
+        kind: Kind::Clave,
     },
     ModelSpec {
         id: ModelId::BRIGHT_SHORT_MARACA,
         label: "Bright short maraca",
         group: "Bridge 808",
+        kind: Kind::Maraca,
     },
     ModelSpec {
         id: ModelId::TRIPLE_PULSE_CLAP,
         label: "Triple pulse clap",
         group: "Bridge 808",
+        kind: Kind::Clap,
     },
     ModelSpec {
         id: ModelId::TWIN_SQUARE_COWBELL,
         label: "Twin-square cowbell",
         group: "Bridge 808",
+        kind: Kind::Cowbell,
     },
     ModelSpec {
         id: ModelId::THREE_PATH_CYMBAL,
         label: "Three-path cymbal",
         group: "Bridge 808",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::SIX_SQUARE_CLOSED_HAT,
         label: "Six-square closed hat",
         group: "Bridge 808",
+        kind: Kind::ClosedHat,
     },
     ModelSpec {
         id: ModelId::SIX_SQUARE_OPEN_HAT,
         label: "Six-square open hat",
         group: "Bridge 808",
+        kind: Kind::OpenHat,
     },
     ModelSpec {
         id: ModelId::RESET_PUNCH_KICK,
         label: "Reset punch kick",
         group: "Reset 909",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::RESET_TWIN_SNARE,
         label: "Reset twin snare",
         group: "Reset 909",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::LOW_RESET_TRIAD_TOM,
         label: "Low reset triad tom",
         group: "Reset 909",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::MID_RESET_TRIAD_TOM,
         label: "Mid reset triad tom",
         group: "Reset 909",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::HIGH_RESET_TRIAD_TOM,
         label: "High reset triad tom",
         group: "Reset 909",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::TRIPLE_RESONATOR_RIM,
         label: "Triple-resonator rim",
         group: "Reset 909",
+        kind: Kind::Rim,
     },
     ModelSpec {
         id: ModelId::FOUR_CELL_CLAP,
         label: "Four-cell clap",
         group: "Reset 909",
+        kind: Kind::Clap,
     },
     ModelSpec {
         id: ModelId::SIX_BIT_CLOSED_HAT,
         label: "Six-bit closed hat",
         group: "Reset 909",
+        kind: Kind::ClosedHat,
     },
     ModelSpec {
         id: ModelId::SIX_BIT_OPEN_HAT,
         label: "Six-bit open hat",
         group: "Reset 909",
+        kind: Kind::OpenHat,
     },
     ModelSpec {
         id: ModelId::SIX_BIT_CRASH,
         label: "Six-bit crash",
         group: "Reset 909",
+        kind: Kind::Crash,
     },
     ModelSpec {
         id: ModelId::SIX_BIT_RIDE,
         label: "Six-bit ride",
         group: "Reset 909",
+        kind: Kind::Ride,
     },
     ModelSpec {
         id: ModelId::ECONOMY_62_KICK,
         label: "Economy 62 kick",
         group: "Economy 55",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::ECONOMY_BODY_SNARE,
         label: "Economy body snare",
         group: "Economy 55",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::ECONOMY_SHORT_RIM,
         label: "Economy short rim",
         group: "Economy 55",
+        kind: Kind::Rim,
     },
     ModelSpec {
         id: ModelId::INDUCTOR_NOISE_HAT,
         label: "Inductor noise hat",
         group: "Economy 55",
+        kind: Kind::Hat,
     },
     ModelSpec {
         id: ModelId::new(32),
         label: "Dual-low kick",
         group: "Expanded 8000",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::new(33),
         label: "Dual-bridge snare",
         group: "Expanded 8000",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::new(34),
         label: "Diode low tom",
         group: "Expanded 8000",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::new(35),
         label: "Diode mid tom",
         group: "Expanded 8000",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::new(36),
         label: "Diode high tom",
         group: "Expanded 8000",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::new(37),
         label: "Diode low conga",
         group: "Expanded 8000",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(38),
         label: "Diode mid conga",
         group: "Expanded 8000",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(39),
         label: "Diode high conga",
         group: "Expanded 8000",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(40),
         label: "Thirty-millisecond rim",
         group: "Expanded 8000",
+        kind: Kind::Rim,
     },
     ModelSpec {
         id: ModelId::new(41),
         label: "Six-square cymbal",
         group: "Expanded 8000",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::new(42),
         label: "Six-square short hat",
         group: "Expanded 8000",
+        kind: Kind::ClosedHat,
     },
     ModelSpec {
         id: ModelId::new(43),
         label: "Six-square long hat",
         group: "Expanded 8000",
+        kind: Kind::OpenHat,
     },
     ModelSpec {
         id: ModelId::new(44),
         label: "Saw-noise clap",
         group: "Expanded 8000",
+        kind: Kind::Clap,
     },
     ModelSpec {
         id: ModelId::new(45),
         label: "Phase-shift clave",
         group: "Expanded 8000",
+        kind: Kind::Clave,
     },
     ModelSpec {
         id: ModelId::new(46),
         label: "Split-square cowbell",
         group: "Expanded 8000",
+        kind: Kind::Cowbell,
     },
     ModelSpec {
         id: ModelId::new(47),
         label: "Compact dual kick",
         group: "Compact 606",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::new(48),
         label: "Compact body snare",
         group: "Compact 606",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::new(49),
         label: "Compact low tom",
         group: "Compact 606",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::new(50),
         label: "Compact high tom",
         group: "Compact 606",
+        kind: Kind::Tom,
     },
     ModelSpec {
         id: ModelId::new(51),
         label: "Two-band cymbal",
         group: "Compact 606",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::new(52),
         label: "Resonant closed hat",
         group: "Compact 606",
+        kind: Kind::ClosedHat,
     },
     ModelSpec {
         id: ModelId::new(53),
         label: "Tempo-coupled open hat",
         group: "Compact 606",
+        kind: Kind::OpenHat,
     },
     ModelSpec {
         id: ModelId::new(54),
         label: "Damped whack kick",
         group: "Snap 110",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::new(55),
         label: "LFSR snap snare",
         group: "Snap 110",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::new(56),
         label: "Mixed-source cymbal",
         group: "Snap 110",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::new(57),
         label: "Mixed-source closed hat",
         group: "Snap 110",
+        kind: Kind::ClosedHat,
     },
     ModelSpec {
         id: ModelId::new(58),
         label: "Mixed-source open hat",
         group: "Snap 110",
+        kind: Kind::OpenHat,
     },
     ModelSpec {
         id: ModelId::new(59),
         label: "Timed-burst clap",
         group: "Snap 110",
+        kind: Kind::Clap,
     },
     ModelSpec {
         id: ModelId::new(60),
         label: "Classic 62 kick",
         group: "Classic 78",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::new(61),
         label: "Classic 340 snare",
         group: "Classic 78",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::new(62),
         label: "Five-millisecond rim",
         group: "Classic 78",
+        kind: Kind::Rim,
     },
     ModelSpec {
         id: ModelId::new(63),
         label: "Sixty-millisecond noise hat",
         group: "Classic 78",
+        kind: Kind::Hat,
     },
     ModelSpec {
         id: ModelId::new(64),
         label: "Long noise cymbal",
         group: "Classic 78",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::new(65),
         label: "Twenty-millisecond maraca",
         group: "Classic 78",
+        kind: Kind::Maraca,
     },
     ModelSpec {
         id: ModelId::new(66),
         label: "High 2630 clave",
         group: "Classic 78",
+        kind: Kind::Clave,
     },
     ModelSpec {
         id: ModelId::new(67),
         label: "High 600 bongo",
         group: "Classic 78",
+        kind: Kind::Bongo,
     },
     ModelSpec {
         id: ModelId::new(68),
         label: "Low 400 bongo",
         group: "Classic 78",
+        kind: Kind::Bongo,
     },
     ModelSpec {
         id: ModelId::new(69),
         label: "Low 208 conga",
         group: "Classic 78",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(70),
         label: "Close-interval cowbell",
         group: "Classic 78",
+        kind: Kind::Cowbell,
     },
     ModelSpec {
         id: ModelId::new(71),
         label: "Tambourine wash",
         group: "Classic 78",
+        kind: Kind::Tambourine,
     },
     ModelSpec {
         id: ModelId::new(72),
         label: "Two-rate guiro",
         group: "Classic 78",
+        kind: Kind::Guiro,
     },
     ModelSpec {
         id: ModelId::new(73),
         label: "Triple high bell",
         group: "Classic 78",
+        kind: Kind::Bell,
     },
     ModelSpec {
         id: ModelId::new(74),
         label: "Discrete 62 kick",
         group: "Discrete 66",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::new(75),
         label: "Discrete 208 conga",
         group: "Discrete 66",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(76),
         label: "Discrete low bongo",
         group: "Discrete 66",
+        kind: Kind::Bongo,
     },
     ModelSpec {
         id: ModelId::new(77),
         label: "Discrete high bongo",
         group: "Discrete 66",
+        kind: Kind::Bongo,
     },
     ModelSpec {
         id: ModelId::new(78),
         label: "Resonant 830 cowbell",
         group: "Discrete 66",
+        kind: Kind::Cowbell,
     },
     ModelSpec {
         id: ModelId::new(79),
         label: "Discrete short rim",
         group: "Discrete 66",
+        kind: Kind::Rim,
     },
     ModelSpec {
         id: ModelId::new(80),
         label: "Resonant 2350 clave",
         group: "Discrete 66",
+        kind: Kind::Clave,
     },
     ModelSpec {
         id: ModelId::new(81),
         label: "Bongo-body snare",
         group: "Discrete 66",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::new(82),
         label: "Forty-millisecond noise hat",
         group: "Discrete 66",
+        kind: Kind::Hat,
     },
     ModelSpec {
         id: ModelId::new(83),
         label: "Forty-millisecond maraca",
         group: "Discrete 66",
+        kind: Kind::Maraca,
     },
     ModelSpec {
         id: ModelId::new(84),
         label: "Four-hundred-millisecond cymbal",
         group: "Discrete 66",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::new(85),
         label: "Early transistor kick",
         group: "Early 2L",
+        kind: Kind::Kick,
     },
     ModelSpec {
         id: ModelId::new(86),
         label: "Early low conga",
         group: "Early 2L",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(87),
         label: "Early high conga",
         group: "Early 2L",
+        kind: Kind::Conga,
     },
     ModelSpec {
         id: ModelId::new(88),
         label: "Early high bongo",
         group: "Early 2L",
+        kind: Kind::Bongo,
     },
     ModelSpec {
         id: ModelId::new(89),
         label: "Early cowbell",
         group: "Early 2L",
+        kind: Kind::Cowbell,
     },
     ModelSpec {
         id: ModelId::new(90),
         label: "Early clave",
         group: "Early 2L",
+        kind: Kind::Clave,
     },
     ModelSpec {
         id: ModelId::new(91),
         label: "Early snare",
         group: "Early 2L",
+        kind: Kind::Snare,
     },
     ModelSpec {
         id: ModelId::new(92),
         label: "Early cymbal",
         group: "Early 2L",
+        kind: Kind::Cymbal,
     },
     ModelSpec {
         id: ModelId::new(93),
         label: "Early maraca",
         group: "Early 2L",
+        kind: Kind::Maraca,
     },
     ModelSpec {
         id: ModelId::new(94),
         label: "Early wire brush",
         group: "Early 2L",
+        kind: Kind::Brush,
     },
 ];
 
@@ -841,9 +994,131 @@ pub fn label(id: ModelId) -> &'static str {
     available(id).map_or("Unavailable", |spec| spec.label)
 }
 
+/// Each slot's made-up name, from the models in the slots: its model's [`Kind::code`] and how many
+/// slots before it play that kind, plus one, so the Init kit reads `bd1 bd2 sn1 sn2 tm1 …`.
+/// Off and an unavailable model make none, and take no number. The numbers come from the models
+/// alone, so a name typed over one slot's never renumbers another's.
+#[must_use]
+pub fn made_up_names(models: &[ModelId; crate::SLOT_COUNT]) -> [Option<String>; crate::SLOT_COUNT] {
+    let mut seen: Vec<(Kind, usize)> = Vec::new();
+    models.map(|id| {
+        let kind = available(id)?.kind;
+        let number = match seen.iter_mut().find(|(each, _)| *each == kind) {
+            Some((_, count)) => {
+                *count += 1;
+                *count
+            }
+            None => {
+                seen.push((kind, 1));
+                1
+            }
+        };
+        Some(format!("{}{number}", kind.code()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The rule each model's kind was written by, so a new model can't ship with one its label
+    /// contradicts: the label's last word, and for a hat whether it is closed (or short), open (or
+    /// long), or neither.
+    #[test]
+    fn every_model_has_the_kind_its_label_names() {
+        for spec in &AVAILABLE_MODELS {
+            let words: Vec<String> = spec
+                .label
+                .split_whitespace()
+                .map(str::to_lowercase)
+                .collect();
+            let has = |word: &str| words.iter().any(|each| each == word);
+            let expected = match words.last().map(String::as_str) {
+                Some("kick") => Kind::Kick,
+                Some("snare") => Kind::Snare,
+                Some("hat") if has("closed") || has("short") => Kind::ClosedHat,
+                Some("hat") if has("open") || has("long") => Kind::OpenHat,
+                Some("hat") => Kind::Hat,
+                Some("tom") => Kind::Tom,
+                Some("conga") => Kind::Conga,
+                Some("bongo") => Kind::Bongo,
+                Some("rim") => Kind::Rim,
+                Some("clave") => Kind::Clave,
+                Some("clap") => Kind::Clap,
+                Some("cowbell") => Kind::Cowbell,
+                Some("cymbal") => Kind::Cymbal,
+                Some("crash") => Kind::Crash,
+                Some("ride") => Kind::Ride,
+                Some("maraca") => Kind::Maraca,
+                // "Tambourine wash", "Triple high bell", "Two-rate guiro", "Early wire brush".
+                Some("wash") => Kind::Tambourine,
+                Some("guiro") => Kind::Guiro,
+                Some("bell") => Kind::Bell,
+                Some("brush") => Kind::Brush,
+                other => panic!("{:?} names no kind: {other:?}", spec.label),
+            };
+            assert_eq!(spec.kind, expected, "{}", spec.label);
+        }
+    }
+
+    fn models(raw: [u8; crate::SLOT_COUNT]) -> [ModelId; crate::SLOT_COUNT] {
+        raw.map(ModelId::new)
+    }
+
+    fn named(names: &[Option<String>]) -> Vec<&str> {
+        names
+            .iter()
+            .map(|name| name.as_deref().unwrap_or("-"))
+            .collect()
+    }
+
+    #[test]
+    fn made_up_names_number_each_kind_in_slot_order() {
+        let ids = |labels: &[&str]| -> Vec<ModelId> {
+            labels
+                .iter()
+                .map(|label| {
+                    AVAILABLE_MODELS
+                        .iter()
+                        .find(|spec| spec.label == *label)
+                        .unwrap_or_else(|| panic!("no model {label:?}"))
+                        .id
+                })
+                .collect()
+        };
+        let mut slots = [ModelId::OFF; crate::SLOT_COUNT];
+        for (slot, id) in ids(&[
+            "Deep bridge kick",
+            "Reset punch kick",
+            "Twin-mode snare",
+            "Six-square closed hat",
+            "Six-square open hat",
+            "Inductor noise hat",
+        ])
+        .into_iter()
+        .enumerate()
+        {
+            slots[slot] = id;
+        }
+        let names = made_up_names(&slots);
+        assert_eq!(
+            named(&names[..7]),
+            ["bd1", "bd2", "sn1", "ch1", "oh1", "hh1", "-"],
+            "Off makes no name"
+        );
+    }
+
+    #[test]
+    fn off_and_unavailable_slots_take_no_number() {
+        let kick = AVAILABLE_MODELS[0].id;
+        assert_eq!(AVAILABLE_MODELS[0].kind, Kind::Kick, "the premise");
+        let mut raw = [0; crate::SLOT_COUNT];
+        raw[0] = kick.raw();
+        raw[1] = 255;
+        raw[2] = kick.raw();
+        let names = made_up_names(&models(raw));
+        assert_eq!(named(&names[..3]), ["bd1", "-", "bd2"]);
+    }
 
     #[test]
     fn available_ids_are_in_stable_order_and_labels_are_unique() {

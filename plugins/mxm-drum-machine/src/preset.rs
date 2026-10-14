@@ -45,6 +45,12 @@ impl Instrument for MxmDrumMachineParams {
         id.starts_with("output_") || id.starts_with("midi_channel_") || id == "resample"
     }
 
+    /// A kit load or Init: the drums changed, so every slot goes back to the name it is given
+    /// (`crate::slot_names`; the owner, 2026-10-14). The names are the song's, never a kit's.
+    fn patch_replaced(&self) {
+        crate::slot_names::clear(self);
+    }
+
     // **Routes are stored sparsely**: a route slot's fields at their defaults store nothing, and a
     // route not in use — its source or its target Off — stores nothing at all, its dormant target
     // and amount being irrelevant to the kit. Resolving an omission writes the default, so loading a

@@ -28,6 +28,9 @@ mxm-drum-machine-dsp.workspace = true
 # with it — symphonia lives only in `mxm-audio-file-decode`, which this plugin does not take.
 mxm-audio-file.workspace = true
 dirs = "=5.0.1"
+# Reads the slot names a state holds before it is restored (`slot_names::filter`). Pinned as the lock
+# already has it, through nice-plug.
+serde_json = "=1.0.145"
 # The Export pack folder chooser (owner, 2026-09-21). Same pin as the two plugins that already
 # ship it; this is the collection's first *folder* pick, and its Linux portal path is unverified
 # from this machine — `AGENTS.md` records that rather than implying it works.
@@ -36,6 +39,9 @@ rfd = "=0.15.4"
 [dev-dependencies]
 # The collection's shared headless checks (`crates/mxm-plugin-test`).
 mxm-plugin-test.workspace = true
+# The note-name extension's C types, for the test that reads the slot names as a host does
+# (`slot_names::tests::through_the_wrapper`). Pinned as the lock has it, through nice-plug.
+clap-sys = "=0.5.0"
 # `wgpu` renders a frame to pixels for the layout-tree review pictures
 # (`mxm_plugin_test::tree_checks`, `editor::tests::tree_pictures`). Test-only: nothing here reaches
 # the bundle.

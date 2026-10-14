@@ -37,6 +37,11 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
   Mute owns silence) and a reservation is never offered as a silent model.
 - Labels never contain manufacturer or hardware model names. Selector group headings are display
   metadata: changing one never changes identity or order.
+- **Every model has a `Kind`** (`model::Kind`), the one the last word of its label names
+  (`every_model_has_the_kind_its_label_names`), so a new model ships with one. Its code starts a
+  slot's made-up name, numbered in slot order over the models alone (`made_up_names`: `bd1`,
+  `sn1`, `ch1`); Off and an unavailable ID make none and take no number (the owner, 2026-10-14;
+  [NOTES.md § Kinds](NOTES.md#kinds-and-made-up-names)).
 
 ## Reference is zero ([NOTES.md](NOTES.md#reference-is-zero))
 

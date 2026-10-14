@@ -72,6 +72,9 @@ machine only lives in its own `AGENTS.md` below.
 - **Developer channel** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#a-developer-channel-in-every-editor)): with `MXM_DEV_CC` set,
   CC 119 selects a category or the Parameters view (127), 118 the expander, 117 the preset browser
   and 116 the theme. Off otherwise; an effect has no note port and carries none of it.
+- **Note names** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#a-drum-instrument-names-its-keys)):
+  a plugin that plays a drum per key names each one through the nice-plug fork's note-name
+  capability (`ClapPlugin::note_names`).
 - **Per-note expression** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#per-note-pitch-expression-is-accepted-nothing-else-per-note-is)):
   `PolyTuning` only, routed by note, unsmoothed; a non-finite tuning is dropped.
 - **Realtime** ([§](https://github.com/mxm-audio/mxm-kit/blob/main/docs/plugin-conventions.md#realtime-rules-for-process)): no allocation, locks, logging or

@@ -9,6 +9,7 @@ examples. AGENTS.md is the contract; this file is the reference it links to.
   - [Sixteen slots, a larger append-only catalogue](#sixteen-slots-a-larger-append-only-catalogue)
   - [Reference is zero](#reference-is-zero)
   - [A pitched model's note is its measured rest pitch](#a-pitched-models-note-is-its-measured-rest-pitch)
+- [Kinds and made-up names](#kinds-and-made-up-names)
 - [Output and modulation routing](#output-and-modulation-routing)
   - [Main and individual output routing](#main-and-individual-output-routing)
   - [Per-slot modulation routing, kit-wide LFOs](#per-slot-modulation-routing-kit-wide-lfos)
@@ -105,6 +106,26 @@ The two supporting pair cowbells (46, 70) read their own oscillator pair from th
 frame at zero Tune: CR-8000 571/838 Hz and CR-78 545/775 Hz, from the comparison fit. Away from zero
 they run the same two squares on free private phases, moved exactly. By the rule above, 46's note is
 its upper oscillator, 838 Hz: the recording keeps 571 Hz 15 dB under it.
+
+## Kinds and made-up names
+
+The owner, 2026-10-14, after trying newDAWn's drum lanes on this instrument: "There is also no way
+to name a drum in the drum machine. And we know already from the start what kind of drum model it
+is. So it should be simple to make generic names like bd1, sn1, ch1, oh2", then "make the software
+make a 'screen name' like bd1, and then give the user the ability to rename it to anything like bd1
+-> subkick". The renaming is the plugin's (its `NOTES.md`, *Slot names*); the made-up name is
+here, because it follows from the catalogue alone.
+
+- **The kind is written on each model**, not read from its label at run time, and a test holds the
+  two together: a label is display text, and a rename of one must not silently change a slot's
+  name. The rule the kinds were written by is the label's last word, a hat split by closed (or
+  short), open (or long) and neither; "Tambourine wash", "Two-rate guiro", "Triple high bell" and
+  "Early wire brush" are the odd last words.
+- **The codes** are the owner's examples and the drum machine's usual abbreviations, two letters
+  each: bd sn ch oh hh tm cg bg rs cl cp cb cy cr rd ma tb gu be br. Toms, congas and bongos are
+  one code each, numbered (the owner chose that over lt/mt/ht from a label's Low, Mid and High).
+- **Numbered over the models alone**, in slot order. A typed name never renumbers another slot's
+  made-up one: renaming bd1 leaves bd2 as it is.
 
 ## Output and modulation routing
 

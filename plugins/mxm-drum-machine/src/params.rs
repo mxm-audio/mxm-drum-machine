@@ -14,6 +14,7 @@
 //! applies from the first release, and nothing migrates old IDs ("There are no saved projects - we
 //! are in pre alpha", 2026-09-30).
 
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, RwLock};
 
 use mxm_drum_machine_dsp::SLOT_COUNT;
@@ -353,6 +354,13 @@ pub struct MxmDrumMachineParams {
     pub resample: BoolParam,
     #[persist = "preset"]
     pub preset: RwLock<mxm_preset::PresetIdentity>,
+    /// The names typed over the slots' made-up ones, one a slot, empty where none is
+    /// (`crate::slot_names`). The song's, never a kit's: an instance's state.
+    #[persist = "slot-names"]
+    pub slot_names: RwLock<Vec<String>>,
+    /// Raised by every write of `slot_names`; the editor lowers it and tells the host
+    /// (`slot_names::announce`). Not saved.
+    pub names_written: AtomicBool,
 }
 
 impl Default for MxmDrumMachineParams {
@@ -373,6 +381,8 @@ impl Default for MxmDrumMachineParams {
             // fifty-kit diversity render measures.
             resample: BoolParam::new("Resample", false),
             preset: RwLock::new(mxm_preset::PresetIdentity::default()),
+            slot_names: RwLock::new(crate::slot_names::empty()),
+            names_written: AtomicBool::new(false),
         }
     }
 }

@@ -40,6 +40,29 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   not offered; IDs 95…255 are safe unavailable values. Init is the brief's sixteen-slot mixed
   assignment, distinct from the nine audition presets.
 
+## Slot names ([NOTES.md § Slot names](NOTES.md#slot-names-2026-10-14))
+
+- **Each slot is called something**: the name typed over it, or else the one made up from its
+  model's kind (`bd1`, `sn1`, `ch1`, the DSP's `made_up_names`). An empty typed name follows the
+  model again (`slot_names`).
+- **Typed names are the song's**: the persistent field `slot-names`, never in a kit, its capture,
+  fingerprint or dirty comparison. **A kit load and Init empty them** (`Instrument::patch_replaced`);
+  changing one slot's model keeps its name.
+- **Every write of the names goes through the dirty-only GUI transaction**: it raises
+  `names_written`, and the editor's frame sends the transaction (`slot_names::announce`), which marks
+  the host's state dirty and makes the wrapper read the note names again. Never a full
+  `set_state`, which would take the plugin's lock.
+- **`filter_state` makes the field canonical before any restore**: cut or padded to `SLOT_COUNT`,
+  each name trimmed, without control characters and at most `NAME_CHARS` characters; a state
+  without the field empties the names; malformed data empties them, never refusing the state.
+- **The host is told** through the nice-plug fork's note-name capability (`slot_names::HostNames`):
+  each Kit slot whose model plays, on its key (`FIRST_KEY` + slot) and note port 0, on channel -1
+  while no slot claims a channel and otherwise on each unclaimed one. A chromatic slot names nothing.
+- **The name box** is first in the slot row, in place of the number, about eight letters wide
+  (`slot_name_width`, measured from the font) and cut beyond; a slot with nothing to call it shows
+  its number. It is a cursor stop (`SLOT_NAME_KEYS`): double-click or OPEN types, Enter keeps,
+  Escape (BACK) cancels, and the hover says the whole name, the slot and its note or channel.
+
 ## Drums ([NOTES.md § Implemented drums](NOTES.md#implemented-drums-deliberate-behavior))
 
 - **Quick repeated strikes continue from live state: never reset phase/state on NoteOn.**
