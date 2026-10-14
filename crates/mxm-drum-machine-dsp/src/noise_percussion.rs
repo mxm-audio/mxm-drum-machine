@@ -541,11 +541,8 @@ mod tests {
         }
     }
 
-    fn deterministic_noise(state: &mut u64) -> f32 {
-        *state ^= *state << 13;
-        *state ^= *state >> 7;
-        *state ^= *state << 17;
-        2.0 * ((*state >> 40) as u32) as f32 / ((1_u32 << 24) - 1) as f32 - 1.0
+    fn deterministic_noise(rng: &mut mxm_rng::Xorshift64) -> f32 {
+        2.0 * mxm_rng::map::unit_f32_closed(rng.next_u32()) - 1.0
     }
 
     fn window_energy(samples: &[f32], start: usize, end: usize) -> f32 {
@@ -561,7 +558,7 @@ mod tests {
             p.body = body;
             p.character = character;
             voice.trigger(0.82, p);
-            let mut state = 1_u64;
+            let mut state = mxm_rng::Xorshift64::from_state(1);
             (0..2_400)
                 .map(|_| voice.process(p, deterministic_noise(&mut state)))
                 .collect::<Vec<_>>()
@@ -584,7 +581,7 @@ mod tests {
     fn clap_bursts_follow_the_fitted_schedule_and_the_reverb_lasts() {
         let mut voice = PulseClap::new();
         voice.trigger(0.82, patch());
-        let mut state = 1_u64;
+        let mut state = mxm_rng::Xorshift64::from_state(1);
         let samples: Vec<_> = (0..9_600)
             .map(|_| voice.process(patch(), deterministic_noise(&mut state)))
             .collect();
@@ -613,7 +610,7 @@ mod tests {
             p.pitch_semitones = pitch;
             p.body = body;
             voice.trigger(0.8, p);
-            let mut state = 9_u64;
+            let mut state = mxm_rng::Xorshift64::from_state(9);
             (0..2_400)
                 .map(|_| voice.process(p, deterministic_noise(&mut state)))
                 .collect::<Vec<_>>()

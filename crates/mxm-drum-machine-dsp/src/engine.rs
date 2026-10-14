@@ -19,6 +19,7 @@ use crate::routing::{self, Graph, Routing, Sources};
 use crate::twin_mode_snare::{Patch as SnarePatch, TwinModeSnare};
 use mxm_modulation::standard;
 use mxm_part_routing::{Destination, DestinationRouter};
+use mxm_rng::{Xorshift64, map};
 
 const RANDOM_SEED: u64 = 0x243f_6a88_85a3_08d3;
 const SNARE_NOISE_SEED: u64 = 0x1319_8a2e_0370_7344;
@@ -133,8 +134,8 @@ const LFO_SEEDS: [u64; 3] = [
 struct Lfo {
     phase: f64,
     held: f32,
-    /// The sample-and-hold sequence's state, advanced once per cycle.
-    noise: u64,
+    /// The sample-and-hold sequence, advanced once per cycle.
+    noise: Xorshift64,
     /// What `noise` returns to on [`Self::reset`], so a reset is deterministic.
     seed: u64,
 }
@@ -144,7 +145,7 @@ impl Lfo {
         let mut lfo = Self {
             phase: 0.0,
             held: 0.0,
-            noise: seed,
+            noise: Xorshift64::from_state(seed),
             seed,
         };
         lfo.draw();
@@ -160,10 +161,7 @@ impl Lfo {
     /// which is what the owner heard as "the decay does not change" (2026-09-22). A drawn value
     /// is also why a slot is modulated from its very first hit rather than after one full cycle.
     fn draw(&mut self) {
-        self.noise ^= self.noise << 13;
-        self.noise ^= self.noise >> 7;
-        self.noise ^= self.noise << 17;
-        self.held = hash_bipolar(self.noise);
+        self.held = hash_bipolar(self.noise.next_u64());
     }
 
     fn tick(&mut self, rate_hz: f32, shape: LfoShape, sample_rate: f32) -> f32 {
@@ -193,7 +191,7 @@ impl Lfo {
 
     fn reset(&mut self) {
         self.phase = 0.0;
-        self.noise = self.seed;
+        self.noise = Xorshift64::from_state(self.seed);
         self.draw();
     }
 }
@@ -648,8 +646,8 @@ pub struct Engine {
     slots: [Slot; SLOT_COUNT],
     routing: [Routing; SLOT_COUNT],
     lfos: [Lfo; 3],
-    random_state: u64,
-    noise_808_state: u64,
+    random_state: Xorshift64,
+    noise_808_state: Xorshift64,
     noise_808_colour: f64,
     /// The low-tom pink tail's one-pole coefficient. Derived from the sample rate alone, so it is
     /// held here rather than rebuilt per sample on the render path.
@@ -709,8 +707,8 @@ impl Engine {
             slots: std::array::from_fn(|_| Slot::new()),
             routing: [Routing::new(); SLOT_COUNT],
             lfos: std::array::from_fn(|index| Lfo::new(LFO_SEEDS[index])),
-            random_state: RANDOM_SEED,
-            noise_808_state: SNARE_NOISE_SEED,
+            random_state: Xorshift64::from_state(RANDOM_SEED),
+            noise_808_state: Xorshift64::from_state(SNARE_NOISE_SEED),
             noise_808_colour: 0.0,
             noise_808_colour_pole: noise_808_colour_pole(48_000.0),
             shared_metal_808: MetalBank::new(),
@@ -878,8 +876,7 @@ impl Engine {
                 slot.finish_retire();
             }
             slot.velocity = triggers.velocities[index];
-            self.random_state = xorshift64(self.random_state);
-            slot.random = hash_bipolar(self.random_state);
+            slot.random = hash_bipolar(self.random_state.next_u64());
             // **The strike reads the routed patch** (2026-10-07). Several circuits read a control
             // only here — Attack, Soft hits and Noise on models 1–10, the pitch of a struck tone —
             // and routes used to reach the patch only per sample, after the strike had read it,
@@ -979,8 +976,7 @@ impl Engine {
     /// spectrum measurement; the coefficient follows the sample rate only and is held on the
     /// engine by `noise_808_colour_pole`.
     fn step_808_noise(&mut self) -> (f32, f32) {
-        self.noise_808_state = xorshift64(self.noise_808_state);
-        let white = hash_bipolar(self.noise_808_state);
+        let white = hash_bipolar(self.noise_808_state.next_u64());
         let colour_pole = self.noise_808_colour_pole;
         self.noise_808_colour =
             colour_pole * self.noise_808_colour + (1.0 - colour_pole) * f64::from(white);
@@ -1007,8 +1003,10 @@ impl Engine {
             }
             return;
         }
-        self.noise_808_state =
-            crate::jump::advance_xorshift64(self.noise_808_state, dormant - window);
+        self.noise_808_state = Xorshift64::from_state(crate::jump::advance_xorshift64(
+            self.noise_808_state.state(),
+            dormant - window,
+        ));
         for _ in 0..window {
             let _ = self.step_808_noise();
         }
@@ -1336,8 +1334,8 @@ impl Engine {
         for lfo in &mut self.lfos {
             lfo.reset();
         }
-        self.random_state = RANDOM_SEED;
-        self.noise_808_state = SNARE_NOISE_SEED;
+        self.random_state = Xorshift64::from_state(RANDOM_SEED);
+        self.noise_808_state = Xorshift64::from_state(SNARE_NOISE_SEED);
         self.noise_808_colour = 0.0;
         self.shared_metal_808.reset();
         self.shared_noise_909.reset();
@@ -1461,17 +1459,9 @@ fn apply_routes(patch: &mut SlotPatch, graph: &Graph, routing: &Routing) {
 }
 
 #[inline]
-fn xorshift64(mut value: u64) -> u64 {
-    value ^= value << 13;
-    value ^= value >> 7;
-    value ^= value << 17;
-    value
-}
-
-#[inline]
 /// One Random draw per hit: `standard::random` of a uniform draw.
 fn hash_bipolar(bits: u64) -> f32 {
-    let unit = ((bits >> 40) as u32) as f32 / ((1_u32 << 24) - 1) as f32;
+    let unit = map::unit_f32_closed((bits >> 32) as u32);
     standard::random(unit)
 }
 

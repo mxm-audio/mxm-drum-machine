@@ -396,13 +396,8 @@ mod tests {
     /// A deterministic noise stream, so a clap's lifetime is a property of its envelopes rather
     /// than of which sample happened to land near zero.
     fn noise_stream() -> impl FnMut() -> f32 {
-        let mut state: u32 = 0x2545_f491;
-        move || {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            (state as f32 / u32::MAX as f32) * 2.0 - 1.0
-        }
+        let mut rng = mxm_rng::Xorshift32::from_state(0x2545_f491);
+        move || mxm_rng::map::unit_f32_word(rng.next_u32()) * 2.0 - 1.0
     }
 
     #[test]

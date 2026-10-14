@@ -15,6 +15,7 @@ use crate::{
     model::ModelId,
     resonator::{MAX_FREQUENCY_FRACTION, MIN_SAMPLE_RATE, Resonator},
 };
+use mxm_rng::{Xorshift32, map};
 
 /// Width of the machines' trigger pulse, seconds. The TR-808 widens its sequencer pulse to about
 /// 1 ms (`research:instruments/analogue-drum-machines.md` §2.1); the CR-8000 closed hat's
@@ -40,7 +41,7 @@ pub struct Frame {
 }
 #[derive(Debug, Clone)]
 pub struct Sources {
-    noise: [u32; 6],
+    noise: [Xorshift32; 6],
     squares: [[BlepSquare; OSCILLATORS]; 6],
 }
 impl Default for Sources {
@@ -52,7 +53,14 @@ impl Sources {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            noise: [0x8001, 0x18003, 0x24007, 0x31009, 0x4100b, 0x5200d],
+            noise: [
+                Xorshift32::from_state(0x8001),
+                Xorshift32::from_state(0x18003),
+                Xorshift32::from_state(0x24007),
+                Xorshift32::from_state(0x31009),
+                Xorshift32::from_state(0x4100b),
+                Xorshift32::from_state(0x5200d),
+            ],
             squares: [start_bank(); 6],
         }
     }
@@ -60,12 +68,7 @@ impl Sources {
         let rate = f64::from(finite(fs, 48_000.0).max(MIN_SAMPLE_RATE));
         std::array::from_fn(|m| {
             let frequencies = metal_frequencies(m);
-            let mut x = self.noise[m];
-            x ^= x << 13;
-            x ^= x >> 17;
-            x ^= x << 5;
-            self.noise[m] = if x == 0 { 1 } else { x };
-            let noise = (self.noise[m] as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            let noise = map::unit_f32_word(self.noise[m].next_u32()) * 2.0 - 1.0;
             let mut metal = 0.0;
             let mut n = 0.0;
             let mut oscillators = [0.0; OSCILLATORS];
@@ -106,7 +109,10 @@ impl Sources {
         }
         let rate = f64::from(finite(fs, 48_000.0).max(MIN_SAMPLE_RATE));
         for m in 0..6 {
-            self.noise[m] = crate::jump::advance_xorshift32(self.noise[m], samples);
+            self.noise[m] = Xorshift32::from_state(crate::jump::advance_xorshift32(
+                self.noise[m].state(),
+                samples,
+            ));
             for (i, frequency) in metal_frequencies(m).iter().copied().enumerate() {
                 if frequency > 0.0 {
                     self.squares[m][i].advance(

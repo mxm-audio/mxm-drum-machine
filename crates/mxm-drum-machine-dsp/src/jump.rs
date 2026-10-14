@@ -31,6 +31,8 @@
 //! making it integer, which changes what every oscillator renders and is therefore an owner
 //! decision rather than an optimisation.
 
+use mxm_rng::{Xorshift32, Xorshift64};
+
 /// A linear map over GF(2)^64, as the images of the 64 basis vectors.
 ///
 /// `rows[i]` is where the map sends the vector with only bit `i` set. Applying it to a state is
@@ -101,32 +103,17 @@ impl Powers {
     }
 }
 
-/// One step of the 808's shared white-noise source.
-///
-/// Duplicated from `engine.rs` deliberately: this module has to know the exact recurrence to build
-/// its matrix, and `a_jump_equals_literal_stepping` fails the moment the two disagree.
-const fn xorshift64(mut value: u64) -> u64 {
-    value ^= value << 13;
-    value ^= value >> 7;
-    value ^= value << 17;
-    value
+/// One step of the 808's shared white-noise source: the very recurrence the engine draws through,
+/// `mxm-rng`'s, so the matrix cannot disagree with it.
+const fn xorshift64(value: u64) -> u64 {
+    Xorshift64::step(value)
 }
 
-/// One step of a supporting machine's noise source.
-///
-/// The engine guards the zero state, which a maximal xorshift never reaches from a nonzero seed;
-/// the guard is defensive and the map is linear, which `a_supporting_jump_equals_stepping` checks
-/// over a long run rather than assuming.
-const fn xorshift32(mut value: u32) -> u32 {
-    value ^= value << 13;
-    value ^= value >> 17;
-    value ^= value << 5;
-    value
-}
-
-/// The 32-bit step widened, so one powers table serves both recurrences.
+/// One step of a supporting machine's noise source, widened so one powers table serves both
+/// recurrences. A maximal xorshift never reaches the zero state from a nonzero seed, which
+/// `a_supporting_jump_equals_stepping` checks over a long run rather than assuming.
 const fn xorshift32_wide(value: u64) -> u64 {
-    xorshift32(value as u32) as u64
+    Xorshift32::step(value as u32) as u64
 }
 
 /// One step of the 909's traced 31-stage shift register, widened so one table serves it too.
@@ -205,15 +192,14 @@ mod tests {
 
     #[test]
     fn a_supporting_jump_equals_stepping() {
-        // The six supporting machines' noise. Their engine step guards the zero state, which a
-        // maximal xorshift never reaches from a nonzero seed — so the map is linear and jumpable,
-        // and a long run here is what says the guard never fires rather than an argument that it
-        // cannot.
+        // The six supporting machines' noise. A maximal xorshift never reaches the zero state from a
+        // nonzero seed — so the map is linear and jumpable, and a long run here is what says the
+        // state never sticks rather than an argument that it cannot.
         for seed in [0x8001_u32, 0x18003, 0x24007, 0x31009, 0x4100b, 0x5200d] {
             let mut stepped = seed;
             for _ in 0..200_000 {
-                stepped = xorshift32(stepped);
-                assert_ne!(stepped, 0, "the zero guard would have fired");
+                stepped = Xorshift32::step(stepped);
+                assert_ne!(stepped, 0, "a zero state would stick");
             }
             assert_eq!(advance_xorshift32(seed, 200_000), stepped);
         }

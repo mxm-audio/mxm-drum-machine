@@ -449,7 +449,7 @@ entropy enters DSP or tests.
 
 ### Dependencies and framework boundary
 
-The runtime dependencies are `mxm-modulation` and `mxm-part-routing`; both are dependency-free at
+The runtime dependencies are `mxm-modulation`, `mxm-part-routing` and `mxm-rng`; all are dependency-free at
 the same MSRV. There are no `nice_plug` or GUI types. Public APIs take plain values, events and sample rate.
 
 `mxm-measure` may be a dev-dependency for rulers; verdicts and thresholds remain in this crate's

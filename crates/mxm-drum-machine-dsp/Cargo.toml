@@ -3,7 +3,7 @@ name = "mxm-drum-machine-dsp"
 description = "Framework-free DSP and model catalogue for mxm-drum-machine"
 version.workspace = true
 edition.workspace = true
-# Both runtime dependencies are themselves dependency-free at this floor. This crate has no GUI
+# All three runtime dependencies are themselves dependency-free at this floor. This crate has no GUI
 # or plugin-framework types and is verified separately on the declared MSRV before release.
 rust-version = "1.87"
 license.workspace = true
@@ -13,6 +13,7 @@ repository.workspace = true
 [dependencies]
 mxm-modulation.workspace = true
 mxm-part-routing.workspace = true
+mxm-rng.workspace = true
 
 [features]
 # `src/conformance.rs`: this instrument's routing as the modulation standard checks it. Enable it

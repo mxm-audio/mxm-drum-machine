@@ -123,7 +123,7 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
 - Same-offset events resolve in the brief's order; host iteration order never changes the result.
   CC120 clears every circuit, bus and pending event; CC123 releases expression ownership without
   truncating tails. Seeds are fixed; no OS entropy anywhere.
-- Runtime dependencies are only `mxm-modulation` and `mxm-part-routing`; no `nice_plug` or GUI
+- Runtime dependencies are only `mxm-modulation`, `mxm-part-routing` and `mxm-rng`; no `nice_plug` or GUI
   types; plain-value APIs. `mxm-measure`, `mxm-audio-file`, `mxm-listening` and `serde_json` are
   dev-only and never enter the shipped graph.
 - No allocation, locks, logging, formatting, file/network I/O or blocking on render paths. Fixed

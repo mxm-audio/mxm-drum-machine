@@ -15,6 +15,7 @@
 
 use crate::engine::SlotPatch;
 use crate::guard::{finite_bipolar as bipolar, finite_or as finite};
+use mxm_rng::{SplitMix64, map};
 
 const SOURCE_RATE: f64 = 44_100.0;
 const HAT: &[u8] = include_bytes!("../assets/reset-909-nmf/hat.pcm");
@@ -259,11 +260,8 @@ fn closed_envelope_sample(index: usize) -> f32 {
 }
 
 fn source_noise(index: usize) -> f32 {
-    let mut value = index as u64 ^ 0x9e37_79b9_7f4a_7c15;
-    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    let unit = ((value ^ (value >> 31)) >> 40) as f32 * (1.0 / 16_777_216.0);
-    2.0 * unit - 1.0
+    let bits = SplitMix64::mix(index as u64 ^ 0x9e37_79b9_7f4a_7c15);
+    map::bipolar_f32((bits >> 32) as u32)
 }
 
 fn sinc_weight(phase: usize, tap: usize) -> f32 {

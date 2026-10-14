@@ -5,6 +5,7 @@
 //! 2026-09-19 A/B pass; each names the measurement that could replace it.
 use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush};
 use crate::{engine::SlotPatch, resonator::Resonator};
+use mxm_rng::{Xorshift32, map};
 
 /// The level a velocity-0.82, zero-Dynamics hit strikes with: the fitted kick's unit strike, so
 /// its clipper sees the recording's drive at the reference setting and harder or softer hits
@@ -188,7 +189,7 @@ pub enum Kind {
 }
 #[derive(Debug, Clone)]
 pub struct Noise {
-    state: u32,
+    rng: Xorshift32,
 }
 impl Default for Noise {
     fn default() -> Self {
@@ -198,16 +199,13 @@ impl Default for Noise {
 impl Noise {
     #[must_use]
     pub const fn new() -> Self {
-        Self { state: 0x55d3_1a7b }
+        Self {
+            rng: Xorshift32::from_state(0x55d3_1a7b),
+        }
     }
     #[must_use]
     pub fn tick(&mut self) -> f32 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.state = if x == 0 { 1 } else { x };
-        (self.state as f32 / u32::MAX as f32) * 2.0 - 1.0
+        map::unit_f32_word(self.rng.next_u32()) * 2.0 - 1.0
     }
     /// Moves the register to where running would have left it, without rendering (plan §4.4).
     ///
@@ -215,7 +213,8 @@ impl Noise {
     /// little on its own — it is here so the rule holds for every shared bus without exception,
     /// which is worth more than the nanoseconds.
     pub fn advance(&mut self, samples: u64) {
-        self.state = crate::jump::advance_xorshift32(self.state, samples);
+        self.rng =
+            Xorshift32::from_state(crate::jump::advance_xorshift32(self.rng.state(), samples));
     }
 
     pub fn reset(&mut self) {
