@@ -123,7 +123,7 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
 - Same-offset events resolve in the brief's order; host iteration order never changes the result.
   CC120 clears every circuit, bus and pending event; CC123 releases expression ownership without
   truncating tails. Seeds are fixed; no OS entropy anywhere.
-- Runtime dependencies are only `mxm-modulation`, `mxm-part-routing` and `mxm-rng`; no `nice_plug` or GUI
+- Runtime dependencies are only `mxm-modulation`, `mxm-part-routing`, `mxm-rng` and `mxm-dsp`; no `nice_plug` or GUI
   types; plain-value APIs. `mxm-measure`, `mxm-audio-file`, `mxm-listening` and `serde_json` are
   dev-only and never enter the shipped graph.
 - No allocation, locks, logging, formatting, file/network I/O or blocking on render paths. Fixed
@@ -153,9 +153,10 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
 - Open for the owner: the CR-8000 conga mapping, the FR-2L kick's click, the TR-606 cymbal's ripple
   and the 909 Ride.
 
-- **The guards are `src/guard.rs`'s, once** — `finite_or`, `finite_unit`, `finite_bipolar`, `flush`
-  and `flush_f64` — and a circuit imports them, under its own local names where it had them,
-  rather than writing them again (they were thirteen copies). `legacy`'s f64 flush at `1e-30` is a
+- **The guards are written once** — `finite_or` and `flush` are `mxm_dsp::guard`'s (the collection's,
+  the same bodies), `finite_unit`, `finite_bipolar` and `flush_f64` are `src/guard.rs`'s — and a
+  circuit imports them, under its own local names where it had them, rather than writing them again
+  (they were thirteen copies). A sample-rate guard is `finite_or(rate, 48 kHz)` then its own bound. `legacy`'s f64 flush at `1e-30` is a
   different threshold and stays its own.
 
 # Work Guidance

@@ -4,7 +4,7 @@
 //! admitted circuits can parameterise after their own strike, nonlinear and output networks are
 //! derived. A model owns those laws and constants; this module owns only the stable pole pair.
 
-use crate::guard::finite_or;
+use mxm_dsp::guard::finite_or;
 use std::f64::consts::TAU;
 
 /// Lowest sample rate accepted by the DSP crate.

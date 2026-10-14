@@ -14,9 +14,10 @@
 //! and its end-of-condition strike, the pitch sigh, the waveform-dependent leakage and the
 //! asymmetric output. Fidelity remains unverified against authenticated hardware.
 
-use crate::guard::{finite_bipolar, finite_or, finite_unit};
+use crate::Coefficient;
+use crate::guard::{finite_bipolar, finite_unit};
 use crate::resonator::{MAX_FREQUENCY_FRACTION, MIN_SAMPLE_RATE};
-use crate::{Coefficient, flush};
+use mxm_dsp::guard::{finite_or, flush};
 
 /// Rest pitch of the struck ring once the sweep has ended. FITTED to the acquired comparison
 /// recording in the 2026-09-19 A/B pass (48.9 Hz measured, 48.8 Hz before the leakage term's small
@@ -253,11 +254,7 @@ impl DeepBridgeKick {
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
-        self.sample_rate = if sample_rate.is_finite() {
-            sample_rate.max(MIN_SAMPLE_RATE)
-        } else {
-            48_000.0
-        };
+        self.sample_rate = finite_or(sample_rate, 48_000.0).max(MIN_SAMPLE_RATE);
     }
 
     /// Strikes the live circuit. It deliberately does not reset resonator or output-filter state.

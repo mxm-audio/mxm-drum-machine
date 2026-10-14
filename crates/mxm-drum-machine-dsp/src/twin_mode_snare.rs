@@ -10,10 +10,11 @@
 //! wire noise from the eight takes' differences. Fidelity is unverified against authenticated
 //! hardware.
 
+use crate::Coefficient;
 use crate::deep_bridge_kick::PhasorResonator;
-use crate::guard::{finite_bipolar, finite_or, finite_unit, flush_f64};
+use crate::guard::{finite_bipolar, finite_unit, flush_f64};
 use crate::resonator::MIN_SAMPLE_RATE;
-use crate::{Coefficient, flush};
+use mxm_dsp::guard::{finite_or, flush};
 
 /// Body modes: frequency, strike amplitude, strike phase (`amplitude · cos(ωt + phase)`) and
 /// amplitude T60. FITTED to the acquired comparison recording in the 2026-09-19 A/B pass; the
@@ -142,11 +143,7 @@ impl TwinModeSnare {
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
-        self.sample_rate = if sample_rate.is_finite() {
-            sample_rate.max(MIN_SAMPLE_RATE)
-        } else {
-            48_000.0
-        };
+        self.sample_rate = finite_or(sample_rate, 48_000.0).max(MIN_SAMPLE_RATE);
     }
 
     /// Strikes live resonators; repeated notes add to their ring rather than resetting it.

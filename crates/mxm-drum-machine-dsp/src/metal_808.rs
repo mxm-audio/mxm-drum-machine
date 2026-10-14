@@ -14,10 +14,11 @@
 //! VCAs plus the lower 3.2 kHz band, each under its own envelope, as §3.8 describes. VCA curves
 //! remain behavioural and hardware-unverified.
 
-use crate::guard::{finite_bipolar, finite_or, flush_f64};
+use crate::Coefficient;
+use crate::guard::{finite_bipolar, flush_f64};
 use crate::noise_percussion::BandPass;
 use crate::resonator::MIN_SAMPLE_RATE;
-use crate::{Coefficient, flush};
+use mxm_dsp::guard::{finite_or, flush};
 
 /// Oscillator frequencies. Oscillators 5 and 6 are the two trimmed ones, MEASURED from the acquired
 /// comparison recording's cowbell in the 2026-09-19 A/B pass (factory nominal 800 and 540 Hz).
@@ -856,11 +857,7 @@ fn scale_decay(reference: f32, value: f32, short: f32, long: f32) -> f32 {
     }
 }
 fn valid_sample_rate(value: f32) -> f32 {
-    if value.is_finite() {
-        value.max(MIN_SAMPLE_RATE)
-    } else {
-        48_000.0
-    }
+    finite_or(value, 48_000.0).max(MIN_SAMPLE_RATE)
 }
 
 #[cfg(test)]

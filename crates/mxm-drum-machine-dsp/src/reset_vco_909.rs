@@ -7,9 +7,9 @@
 //! centre settings, unaccented) in the 2026-09-19 A/B pass. They are recording fits, not
 //! measurements of a trimmed unit, and each names the measurement that could replace it.
 
-use crate::flush;
-use crate::guard::{finite_bipolar, finite_or};
+use crate::guard::finite_bipolar;
 use crate::resonator::{MIN_SAMPLE_RATE, Resonator};
+use mxm_dsp::guard::{finite_or, flush};
 
 #[derive(Debug, Clone)]
 pub struct HardwareNoise {
@@ -1075,11 +1075,7 @@ fn envelope_time_scale(value: f32) -> f32 {
     }
 }
 fn valid_sample_rate(v: f32) -> f32 {
-    if v.is_finite() {
-        v.max(MIN_SAMPLE_RATE)
-    } else {
-        48_000.0
-    }
+    finite_or(v, 48_000.0).max(MIN_SAMPLE_RATE)
 }
 #[cfg(test)]
 mod tests {

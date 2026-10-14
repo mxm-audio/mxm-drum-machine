@@ -11,9 +11,10 @@
 //! whole gate and is cut by a VCA threshold; the clap's bursts arrive at 0, 8.0, 19.5 and 29.5 ms,
 //! each longer than the last, through a brighter path than its 1 kHz reverb tail.
 
-use crate::guard::{finite_bipolar, finite_or, flush_f64};
+use crate::Coefficient;
+use crate::guard::{finite_bipolar, flush_f64};
 use crate::resonator::MIN_SAMPLE_RATE;
-use crate::{Coefficient, flush};
+use mxm_dsp::guard::{finite_or, flush};
 
 /// Accent at the catalogue reference velocity (0.82) with zero Dynamics; fitted levels are the
 /// recording's scale at this accent.
@@ -516,11 +517,7 @@ fn envelope_time_scale(value: f32) -> f32 {
 }
 
 fn valid_sample_rate(value: f32) -> f32 {
-    if value.is_finite() {
-        value.max(MIN_SAMPLE_RATE)
-    } else {
-        48_000.0
-    }
+    finite_or(value, 48_000.0).max(MIN_SAMPLE_RATE)
 }
 
 #[cfg(test)]

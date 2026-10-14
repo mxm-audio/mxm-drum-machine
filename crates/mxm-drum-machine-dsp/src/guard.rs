@@ -4,15 +4,12 @@
 //! **One copy each.** They were written into each circuit's module as it was built — the same
 //! `finite_or` thirteen times under two names — which `AGENTS.md`'s *extract within this crate once
 //! two completed circuits share an API* already asked to be gathered. Bit-identical to every copy
-//! they replace, so no render moves. `legacy`'s f64 flush at `1e-30` is a different threshold and
+//! they replace, so no render moves. `finite_or` and the `f32` flush are now the collection's
+//! (`mxm_dsp::guard`, the architecture audit's O2), the same bodies; the unit and bipolar wrappers and
+//! the `f64` flush are this crate's. `legacy`'s f64 flush at `1e-30` is a different threshold and
 //! stays in `legacy`.
 
-/// `value`, or `fallback` if it is not finite.
-#[inline]
-#[must_use]
-pub(crate) fn finite_or(value: f32, fallback: f32) -> f32 {
-    if value.is_finite() { value } else { fallback }
-}
+use mxm_dsp::guard::finite_or;
 
 /// A unit control: non-finite reads as 0, and the rest is held to `0..=1`.
 #[inline]
@@ -28,14 +25,7 @@ pub(crate) fn finite_bipolar(value: f32) -> f32 {
     finite_or(value, 0.0).clamp(-1.0, 1.0)
 }
 
-/// Flushes subnormal recursive state to exact zero.
-#[inline]
-#[must_use]
-pub(crate) fn flush(value: f32) -> f32 {
-    if value.abs() < 1.0e-20 { 0.0 } else { value }
-}
-
-/// [`flush`] for the circuits that keep their state in `f64`, at the same threshold.
+/// `mxm_dsp::guard::flush` for the circuits that keep their state in `f64`, at the same threshold.
 #[inline]
 #[must_use]
 pub(crate) fn flush_f64(value: f64) -> f64 {

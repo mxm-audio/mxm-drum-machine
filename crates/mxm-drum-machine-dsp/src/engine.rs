@@ -5,7 +5,6 @@ use crate::analogue_909::{FourCellClap, TripleRim};
 use crate::deep_bridge_kick::{DeepBridgeKick, Patch as KickPatch};
 use crate::economy_55::{Kind as EconomyKind, Noise as EconomyNoise, Voice as EconomyVoice};
 use crate::falling_drum::{FallingDrum, Kind as FallingKind, Patch as FallingPatch};
-use crate::guard::finite_or;
 use crate::legacy::{Sources as LegacySources, Voice as LegacyVoice, machine as legacy_machine};
 use crate::metal_808::{Cowbell, Cymbal, Hat, HatKind, MetalBank, Patch as MetalPatch};
 use crate::model::{ImplementedModel, ModelId};
@@ -17,6 +16,7 @@ use crate::reset_vco_909::{
 use crate::rim_clave::{Kind as RimClaveKind, Patch as RimClavePatch, RimClave};
 use crate::routing::{self, Graph, Routing, Sources};
 use crate::twin_mode_snare::{Patch as SnarePatch, TwinModeSnare};
+use mxm_dsp::guard::finite_or;
 use mxm_modulation::standard;
 use mxm_part_routing::{Destination, DestinationRouter};
 use mxm_rng::{Xorshift64, map};

@@ -3,8 +3,9 @@
 //! (`research:instruments/analogue-drum-machines.md` §5.5). The constants below were fitted to the
 //! acquired comparison recordings (single hits from a private DR-55 sample folder) in the
 //! 2026-09-19 A/B pass; each names the measurement that could replace it.
-use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush};
+use crate::guard::finite_bipolar as bipolar;
 use crate::{engine::SlotPatch, resonator::Resonator};
+use mxm_dsp::guard::{finite_or as finite, flush};
 use mxm_rng::{Xorshift32, map};
 
 /// The level a velocity-0.82, zero-Dynamics hit strikes with: the fitted kick's unit strike, so

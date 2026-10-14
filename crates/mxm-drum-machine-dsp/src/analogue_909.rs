@@ -3,8 +3,9 @@
 //! calibration targets nor hardware measurements close the exact constants; the reference values
 //! below were fitted to the acquired comparison recordings in the 2026-09-19 A/B pass and each names
 //! the measurement that could replace it.
-use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush};
+use crate::guard::finite_bipolar as bipolar;
 use crate::{engine::SlotPatch, resonator::Resonator};
+use mxm_dsp::guard::{finite_or as finite, flush};
 const LN_001: f32 = -6.907_755_4;
 /// Rim constants fitted to the acquired comparison recording (unaccented, fixed voice) in the
 /// 2026-09-19 A/B pass, refitted after listening: a least-squares fit of this topology against the

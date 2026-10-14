@@ -14,7 +14,8 @@
 //! the offline method and fixed representation.
 
 use crate::engine::SlotPatch;
-use crate::guard::{finite_bipolar as bipolar, finite_or as finite};
+use crate::guard::finite_bipolar as bipolar;
+use mxm_dsp::guard::finite_or as finite;
 use mxm_rng::{SplitMix64, map};
 
 const SOURCE_RATE: f64 = 44_100.0;

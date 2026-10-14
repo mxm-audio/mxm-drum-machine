@@ -9,12 +9,13 @@
 //! its centre trim (§12.4) replaces each one. Voices without a recording (38, 39, 65, 66, 73,
 //! 75–78, 83, 84, 86–89, 93, 94) keep their schematic-nominal tuning and take only the systemic
 //! renderer changes and their measured siblings' circuit shapes.
-use crate::guard::{finite_bipolar as bipolar, finite_or as finite, flush as flush32};
+use crate::guard::finite_bipolar as bipolar;
 use crate::{
     engine::SlotPatch,
     model::ModelId,
     resonator::{MAX_FREQUENCY_FRACTION, MIN_SAMPLE_RATE, Resonator},
 };
+use mxm_dsp::guard::{finite_or as finite, flush as flush32};
 use mxm_rng::{Xorshift32, map};
 
 /// Width of the machines' trigger pulse, seconds. The TR-808 widens its sequencer pulse to about

@@ -14,10 +14,11 @@
 //! ring.
 //! The clave stays below the clipping point: a clean cosine-phase ring.
 
+use crate::Coefficient;
 use crate::deep_bridge_kick::PhasorResonator;
-use crate::guard::{finite_bipolar, finite_or, flush_f64};
+use crate::guard::{finite_bipolar, flush_f64};
 use crate::resonator::MIN_SAMPLE_RATE;
-use crate::{Coefficient, flush};
+use mxm_dsp::guard::{finite_or, flush};
 
 const MAX_TAIL_SECONDS: f32 = 0.5;
 /// Accent at the catalogue reference velocity (0.82) with zero Dynamics; fitted amplitudes are the
@@ -153,11 +154,7 @@ impl RimClave {
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
-        self.sample_rate = if sample_rate.is_finite() {
-            sample_rate.max(MIN_SAMPLE_RATE)
-        } else {
-            48_000.0
-        };
+        self.sample_rate = finite_or(sample_rate, 48_000.0).max(MIN_SAMPLE_RATE);
     }
 
     pub fn trigger(&mut self, velocity: f32, patch: Patch) {

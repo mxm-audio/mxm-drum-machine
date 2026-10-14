@@ -13,10 +13,11 @@
 //! the low tom. Low tom alone exposes it to Noise and Noise decay; mid and high tom play it fixed.
 //! Every tom reads the one machine-shared coloured noise sample through its own filter states.
 
+use crate::Coefficient;
 use crate::deep_bridge_kick::PhasorResonator;
-use crate::guard::{finite_bipolar, finite_or, finite_unit, flush_f64};
+use crate::guard::{finite_bipolar, finite_unit, flush_f64};
 use crate::resonator::MIN_SAMPLE_RATE;
-use crate::{Coefficient, flush};
+use mxm_dsp::guard::{finite_or, flush};
 
 const MAX_TAIL_SECONDS: f32 = 1.5;
 /// Final emergency bound. Ordinary reference hits peak near 0.6 and never reach it, so the clean
@@ -230,11 +231,7 @@ impl FallingDrum {
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
-        self.sample_rate = if sample_rate.is_finite() {
-            sample_rate.max(MIN_SAMPLE_RATE)
-        } else {
-            48_000.0
-        };
+        self.sample_rate = finite_or(sample_rate, 48_000.0).max(MIN_SAMPLE_RATE);
     }
 
     /// Strikes the live resonator; a retrigger adds to the ring according to its current phase.
