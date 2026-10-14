@@ -143,7 +143,7 @@ breaks another is a broken change. CI builds and tests on all three when started
 
 | Crate | MSRV | Why |
 |---|---|---|
-| `crates/mxm-drum-machine-dsp` | **1.87** | The sixteen-slot drum framework and machine-specific circuits. Five runtime dependencies, `mxm-modulation`, `mxm-part-routing`, `mxm-rng`, `mxm-dsp` and `mxm-drum-engine`, all dependency-free at this floor; all 94 admitted models cover struck bridged-T, reset-VCO, clocked six-bit, transistor-resonator, machine-shared noise and machine-shared metal substrates. **Verified on 1.87**, library and tests |
+| `crates/mxm-drum-machine-dsp` | **1.87** | The sixteen-slot drum framework and machine-specific circuits. Five runtime dependencies, `mxm-modulation`, `mxm-part-routing`, `mxm-rng`, `mxm-dsp` and `mxm-drum-engine`, all framework-free kit crates at this floor (`mxm-drum-engine` builds on three of the others); all 94 admitted models cover struck bridged-T, reset-VCO, clocked six-bit, transistor-resonator, machine-shared noise and machine-shared metal substrates. **Verified on 1.87**, library and tests |
 | `plugins/mxm-drum-machine` | **1.95** | Its dynamically paged sixteen-slot editor pulls in egui; depends on `mxm-drum-machine-dsp`, which stays at 1.87 |
 
 ## Licensing

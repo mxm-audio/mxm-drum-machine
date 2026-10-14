@@ -306,14 +306,15 @@ impl Collect for EventGroup {
 }
 
 /// This instrument's note laws, which `mxm_part_routing::PartState::resolve` applies.
-struct NoteLaws {
+struct NoteLaws<'a> {
     assignments: [PartAssignment; SLOT_COUNT],
     claimed: u16,
-    /// The key each slot's model sits at its own concert pitch on, for a chromatic owner.
-    reference_key: [f32; SLOT_COUNT],
+    /// Read for a slot's model only when that slot takes an owner: a model's reference key costs a
+    /// logarithm, and most groups strike nothing.
+    params: &'a MxmDrumMachineParams,
 }
 
-impl PartPolicy for NoteLaws {
+impl PartPolicy for NoteLaws<'_> {
     fn accepts(&self, slot: usize, owner: NoteOwner) -> bool {
         assignment_matches(
             self.assignments[slot],
@@ -357,7 +358,8 @@ impl PartPolicy for NoteLaws {
         if self.assignments[slot] == PartAssignment::FixedNote {
             0.0
         } else {
-            f32::from(owner.key) - self.reference_key[slot]
+            let model = ModelId::new(self.params.slots[slot].model.value().clamp(0, 255) as u8);
+            f32::from(owner.key) - model.chromatic_reference_key()
         }
     }
 }
@@ -413,10 +415,7 @@ impl MxmDrumMachine {
         let laws = NoteLaws {
             assignments,
             claimed: claimed_channels(&assignments),
-            reference_key: std::array::from_fn(|slot| {
-                ModelId::new(self.params.slots[slot].model.value().clamp(0, 255) as u8)
-                    .chromatic_reference_key()
-            }),
+            params: &self.params,
         };
         let flags = ResolveFlags {
             release_all: events.all_notes_off_requested() || overflow,
