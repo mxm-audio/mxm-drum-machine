@@ -23,7 +23,6 @@ use mxm_ui::tree::{
 };
 use nice_plug::context::gui::GuiContext;
 use nice_plug::prelude::*;
-use nice_plug_egui::{EguiEditorState, NiceEguiApp, create_egui_editor};
 
 use self::binding::{
     Bound, selector as bound_selector, set_together, toggle_compact as bound_toggle_compact,
@@ -150,30 +149,17 @@ const MIDI_CHANNEL_OPTIONS: [&str; 17] = [
     "Ch 11", "Ch 12", "Ch 13", "Ch 14", "Ch 15", "Ch 16",
 ];
 
-pub type MxmDrumMachineEditor = nice_plug_egui::EguiEditor<MxmDrumMachineApp>;
+pub type MxmDrumMachineEditor = mxm_editor::Editor<MxmDrumMachineApp>;
 
 pub fn create(
     params: Arc<MxmDrumMachineParams>,
     telemetry: Arc<Telemetry>,
     spawn: Spawn,
 ) -> Option<MxmDrumMachineEditor> {
-    let state = EguiEditorState::from_size(
-        nice_plug::editor::dpi::LogicalSize::new(REFERENCE.0, REFERENCE.1),
-        1.0,
-    );
-    create_egui_editor(
-        state,
-        nice_plug_egui::RepaintNotifier::new(),
-        nice_plug_egui::EguiNiceSettings {
-            title: crate::NAME.to_owned(),
-            resize_hint: ResizeHint {
-                size_constraints: nice_plug::editor::SizeConstraints::min_logical_size(
-                    nice_plug::editor::dpi::LogicalSize::new(MINIMUM.0 as f32, MINIMUM.1 as f32),
-                ),
-                ..ResizeHint::RESIZABLE
-            },
-            ..Default::default()
-        },
+    mxm_editor::create(
+        crate::NAME,
+        REFERENCE,
+        MINIMUM,
         MxmDrumMachineApp::new(params, telemetry, Some(spawn)),
     )
 }
@@ -189,7 +175,6 @@ pub struct MxmDrumMachineApp {
     params: Arc<MxmDrumMachineParams>,
     telemetry: Arc<Telemetry>,
     spawn: Option<Spawn>,
-    gui_context: Option<GuiContext>,
     selected_slot: usize,
     text_entry: HashMap<&'static str, Option<String>>,
     presets: PresetUi,
@@ -207,7 +192,6 @@ impl MxmDrumMachineApp {
             params,
             telemetry,
             spawn,
-            gui_context: None,
             selected_slot: 0,
             text_entry: HashMap::new(),
             presets: PresetUi::new(params_for_presets.as_ref()),
@@ -216,22 +200,8 @@ impl MxmDrumMachineApp {
     }
 }
 
-impl NiceEguiApp for MxmDrumMachineApp {
-    fn build(
-        &mut self,
-        egui_ctx: egui::Context,
-        nice_gui_ctx: GuiContext,
-        _frame: &mut nice_plug_egui::Frame,
-    ) -> Result<(), nice_plug_egui::baseview::HandlerError> {
-        mxm_ui::shell::install(&egui_ctx);
-        self.gui_context = Some(nice_gui_ctx);
-        Ok(())
-    }
-
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut nice_plug_egui::Frame) {
-        let Some(context) = self.gui_context.clone() else {
-            return;
-        };
+impl mxm_editor::Panel for MxmDrumMachineApp {
+    fn ui(&mut self, ui: &mut Ui, context: &GuiContext) {
         panel(
             ui,
             &self.params,
@@ -243,10 +213,6 @@ impl NiceEguiApp for MxmDrumMachineApp {
             &mut self.nav,
             self.spawn.as_ref(),
         );
-    }
-
-    fn editor_closed(&mut self) {
-        self.gui_context = None;
     }
 }
 
