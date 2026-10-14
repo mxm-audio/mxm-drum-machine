@@ -223,10 +223,7 @@ impl NiceEguiApp for MxmDrumMachineApp {
         nice_gui_ctx: GuiContext,
         _frame: &mut nice_plug_egui::Frame,
     ) -> Result<(), nice_plug_egui::baseview::HandlerError> {
-        mxm_ui::theme::apply(&egui_ctx);
-        mxm_ui::typography::apply(&egui_ctx);
-        egui_ctx.set_theme(mxm_ui::theme::preference());
-        mxm_ui::navigation::use_shared_keymap(&egui_ctx);
+        mxm_ui::shell::install(&egui_ctx);
         self.gui_context = Some(nice_gui_ctx);
         Ok(())
     }
@@ -277,11 +274,7 @@ pub fn panel(
     {
         mxm_ui::paging::editor::request_category(ui.ctx(), category);
     }
-    if let Some(theme) = telemetry.dev.take_theme()
-        && let Some(preference) = mxm_ui::theme::from_index(theme)
-    {
-        ui.ctx().set_theme(preference);
-    }
+    mxm_ui::shell::developer_theme(ui.ctx(), &telemetry.dev);
     if let Some(open) = telemetry.dev.take_browser() {
         presets.set_browser_open(open);
     }
@@ -295,14 +288,7 @@ pub fn panel(
         &tokens,
         |ui| mxm_preset::ui::preset_row(ui, &tokens, params, setter, presets),
         |ui| {
-            if mxm_ui::shell::level_meter(
-                ui,
-                &tokens,
-                telemetry.meter.take(),
-                telemetry.meter.clipped(),
-            ) {
-                telemetry.meter.clear_clip();
-            }
+            mxm_ui::shell::peak_meter(ui, &tokens, &telemetry.meter);
             // Design system §3.1 slot 6: the whole kit's output control sits beside its meter,
             // not among one slot's controls.
             mxm_ui::navigation::bar_card(ui, MASTER_CARD, |ui| {
