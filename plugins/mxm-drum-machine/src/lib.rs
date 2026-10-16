@@ -941,7 +941,22 @@ impl ClapPlugin for MxmDrumMachine {
     }
 }
 
+impl Vst3Plugin for MxmDrumMachine {
+    /// Permanent, as `CLAP_ID` is: the CLAP id's hash written out, held to it by
+    /// `identity::the_vst3_class_id_is_the_clap_ids_hash`.
+    const VST3_CLASS_ID: [u8; 16] = [
+        0x78, 0xc8, 0x3f, 0xcf, 0xc7, 0xb1, 0xd5, 0x44, 0x00, 0x17, 0x0a, 0x3d, 0x97, 0xf9, 0x3c,
+        0xbb,
+    ];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
+        Vst3SubCategory::Instrument,
+        Vst3SubCategory::Drum,
+        Vst3SubCategory::Stereo,
+    ];
+}
+
 nice_export_clap!(MxmDrumMachine);
+nice_export_vst3!(MxmDrumMachine);
 
 #[cfg(test)]
 mod tests {
@@ -1609,6 +1624,17 @@ mod tests {
 #[cfg(test)]
 mod identity {
     use super::{CLAP_ID, NAME};
+    use mxm_plugin_test::formats;
+
+    #[test]
+    fn the_vst3_class_id_is_the_clap_ids_hash() {
+        formats::the_vst3_class_id_is_the_clap_ids_hash::<super::MxmDrumMachine>();
+    }
+
+    #[test]
+    fn the_vst3_categories_follow_the_clap_features() {
+        formats::the_vst3_categories_follow_the_clap_features::<super::MxmDrumMachine>();
+    }
 
     #[test]
     fn clap_id_and_bundle_name_follow_the_single_plugin_literal() {
