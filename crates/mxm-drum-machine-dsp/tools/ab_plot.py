@@ -16,6 +16,7 @@ the strip is shaded rather than silently drawn as zero.
 """
 
 import json
+import os
 import re
 import sys
 import wave
@@ -25,6 +26,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 WIDTH, HEIGHT = 1560, 736
+# The longest whole-hit and spectrogram span, s: a drum machine's 3, a cymbal's or a ringing drum's
+# longer (AB_PLOT_SPAN_S, up to 10); past 3 s a spectrogram's window widens with it.
+SPAN_S = min(float(os.environ.get("AB_PLOT_SPAN_S", "3.0")), 10.0)
 LEFT, RIGHT, TOP = 70, 16, 34
 MODEL = (31, 122, 140)
 ORIGINAL = (192, 98, 43)
@@ -134,7 +138,7 @@ def midline(draw, area):
 
 def time_axis(draw, area, t0, t1, fonts):
     span_ms = (t1 - t0) * 1000
-    step = next(s for s in (0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500) if span_ms / s <= 16)
+    step = next(s for s in (0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000) if span_ms / s <= 16)
     tick = np.ceil(t0 * 1000 / step) * step
     while tick <= t1 * 1000 + 1e-9:
         x = to_x(area, tick / 1000, t0, t1)
@@ -146,7 +150,7 @@ def time_axis(draw, area, t0, t1, fonts):
 def envelope_db(sound, t1, pitch):
     # One period of the rest pitch (at least 2 ms), so a low drum's own cycles do not ripple it.
     x, rate, onset = sound["x"], sound["rate"], sound["onset"]
-    window = int(rate * max(0.002, 1.0 / pitch if pitch else 0.002))
+    window = int(rate * max(0.002, 1.0 / pitch if pitch else 0.002, t1 / 300 if SPAN_S > 3.0 else 0.0))
     seg = x[onset:onset + int(t1 * rate)]
     n = len(seg) // window
     if n == 0:
@@ -337,7 +341,7 @@ def render(entry, pitch, model, original, out, fonts):
         idx = np.nonzero(np.abs(x) >= peak * 10 ** (-60 / 20))[0]
         return ((idx[-1] if len(idx) else sound["onset"]) - sound["onset"]) / sound["rate"]
     t_end = max(length(model), length(original) if original else 0)
-    t_end = min(max(t_end * 1.05, 0.02), 3.0)
+    t_end = min(max(t_end * 1.05, 0.02), SPAN_S)
     t0 = -PRE_ROLL
     img = Image.new("RGB", (WIDTH, HEIGHT), "white")
     draw = ImageDraw.Draw(img)
