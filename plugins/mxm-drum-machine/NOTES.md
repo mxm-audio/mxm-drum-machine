@@ -1301,8 +1301,9 @@ and committed by one rename onto a path that does not exist — a taken name tak
 is nothing to roll back, and the rename means the same thing on all three platforms, which a
 rename over an existing directory would not.
 
-**Still owed:** the frozen controls greying out, and §4.4's bus gating, which is what the CPU
-claim rests on.
+**Done since:** the frozen controls narrow to the axes a recording keeps (`editor.rs`, the slot's
+capabilities while frozen), and §4.4's bus gating, which the CPU claim rests on (`Engine::prepare`'s
+reader flags, the DSP crate's `AGENTS.md`).
 
 The editor draws the toggle as a kit-wide row on the Output card, under *All slots*: kit-wide like
 its neighbour, on the output stage because a frozen kit is an output decision rather than a
