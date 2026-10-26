@@ -1,199 +1,43 @@
-//! Each slot's name (the owner, 2026-10-14: "make the software make a 'screen name' like bd1, and
-//! then give the user the ability to rename it to anything like bd1 -> subkick").
-//!
-//! - **A slot is called what it is**: its model's kind and how many slots before it play that
-//!   kind, plus one (`mxm_drum_machine_dsp::model::made_up_names`): `bd1`, `sn1`, `ch1`.
-//! - **A name typed over it is the song's**: a persistent field, saved with the plugin's state,
-//!   which a kit never carries. Loading a kit, or Init, empties every typed name, since the drums
-//!   changed (`Instrument::patch_replaced`); changing one slot's model keeps its name. An empty name
-//!   follows the model again, as an empty lane name in newDAWn follows the instrument.
-//! - **The host is told** through CLAP's note-name extension, the nice-plug fork's capability: each
-//!   Kit slot's key carries its name, so a host's drum lanes read as the slots do.
-//!
-//! Every write of the names raises [`MxmDrumMachineParams::names_written`]; the editor then sends
-//! the fork's dirty-only GUI transaction ([`announce`]), which tells the host the song changed and
-//! makes the wrapper read the note names again.
+//! Each slot's name: the rules, the persistent field, the host's note names and the editor's
+//! announcement are mxm-kit's `mxm_drum_shell::slot_names` (the owner, 2026-10-14: "make the
+//! software make a 'screen name' like bd1, and then give the user the ability to rename it to
+//! anything like bd1 -> subkick"); here, the drum machine's slots as the names read them.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::RwLock;
+use std::sync::atomic::AtomicBool;
 
 use mxm_drum_machine_dsp::SLOT_COUNT;
 use mxm_drum_machine_dsp::model::{available, made_up_names};
-use mxm_part_routing::{PartAssignment, claimed_channels};
-use nice_plug::context::gui::GuiContext;
-use nice_plug::prelude::{ClapNoteNames, NoteName};
+
+pub use mxm_drum_shell::slot_names::*;
 
 use crate::params::{MxmDrumMachineParams, at, slot_ids};
 
-/// The persistent field's key in the plugin's state.
-pub const FIELD: &str = "slot-names";
+impl DrumSlots for MxmDrumMachineParams {
+    const FIRST_KEY: u8 = crate::FIRST_KEY;
 
-/// The most of a typed name that is kept, in characters (Unicode scalar values, not bytes).
-pub const NAME_CHARS: usize = 32;
-
-/// Every slot's name empty: each follows its model.
-#[must_use]
-pub fn empty() -> Vec<String> {
-    vec![String::new(); SLOT_COUNT]
-}
-
-/// A typed name as it is kept: without control characters, trimmed, and at most [`NAME_CHARS`]
-/// characters.
-#[must_use]
-pub fn canonical_name(text: &str) -> String {
-    let clean: String = text.chars().filter(|c| !c.is_control()).collect();
-    let cut: String = clean.trim().chars().take(NAME_CHARS).collect();
-    cut.trim_end().to_owned()
-}
-
-/// The names as they are kept, from whatever a state held under [`FIELD`]: a list cut or padded to
-/// `SLOT_COUNT`, each name [canonical](canonical_name). Nothing there, or anything but a list,
-/// is every name empty, and an entry that isn't text is an empty name: the names are a convenience,
-/// never worth refusing a song over.
-#[must_use]
-pub fn canonical(stored: Option<&str>) -> Vec<String> {
-    let listed: Vec<String> = stored
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
-        .and_then(|value| match value {
-            serde_json::Value::Array(items) => Some(items),
-            _ => None,
-        })
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| item.as_str().map(canonical_name).unwrap_or_default())
-                .collect()
-        })
-        .unwrap_or_default();
-    (0..SLOT_COUNT)
-        .map(|slot| listed.get(slot).cloned().unwrap_or_default())
-        .collect()
-}
-
-/// `Plugin::filter_state`'s part, run on every state before it is restored: the names' field
-/// rewritten to its canonical text. An older state without it gets it, every name empty, so
-/// opening it empties names typed since rather than keeping them. The field then installs exactly
-/// what arrived, which the fork's check on persistent fields requires.
-pub fn filter(fields: &mut BTreeMap<String, String>) {
-    let names = canonical(fields.get(FIELD).map(String::as_str));
-    let text = serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_owned());
-    fields.insert(FIELD.to_owned(), text);
-}
-
-fn typed(params: &MxmDrumMachineParams) -> Vec<String> {
-    params
-        .slot_names
-        .read()
-        .map(|names| names.clone())
-        .unwrap_or_default()
-}
-
-/// What each slot is called: the name typed over it, or else the one it is given; none for a slot
-/// with nothing typed whose model is Off or unavailable.
-#[must_use]
-pub fn shown(params: &MxmDrumMachineParams) -> [Option<String>; SLOT_COUNT] {
-    let models = std::array::from_fn(|slot| params.slots[slot].model_id());
-    let made_up = made_up_names(&models);
-    let typed = typed(params);
-    std::array::from_fn(|slot| match typed.get(slot) {
-        Some(name) if !name.is_empty() => Some(name.clone()),
-        _ => made_up[slot].clone(),
-    })
-}
-
-/// The name a slot would have with nothing typed over it.
-#[must_use]
-pub fn made_up(params: &MxmDrumMachineParams, slot: usize) -> Option<String> {
-    let models = std::array::from_fn(|slot| params.slots[slot].model_id());
-    made_up_names(&models)[slot].clone()
-}
-
-/// Types a slot's name. It is kept [canonical](canonical_name), and empty when it is the name the
-/// slot is given anyway, so it goes on following its model.
-pub fn set(params: &MxmDrumMachineParams, slot: usize, text: &str) {
-    let mut name = canonical_name(text);
-    if made_up(params, slot).as_deref() == Some(name.as_str()) {
-        name.clear();
-    }
-    let Ok(mut names) = params.slot_names.write() else {
-        return;
-    };
-    if names.len() != SLOT_COUNT {
-        *names = empty();
-    }
-    if names[slot] != name {
-        names[slot] = name;
-        params.names_written.store(true, Ordering::Release);
-    }
-}
-
-/// Empties every typed name: a kit load and Init (`Instrument::patch_replaced`).
-pub fn clear(params: &MxmDrumMachineParams) {
-    let Ok(mut names) = params.slot_names.write() else {
-        return;
-    };
-    if names.iter().any(|name| !name.is_empty()) || names.len() != SLOT_COUNT {
-        *names = empty();
-        params.names_written.store(true, Ordering::Release);
-    }
-}
-
-/// The editor's half of every write, once a frame: when the names changed, nice-plug's dirty-only
-/// GUI transaction (no parameters, the fields as they are now), which tells the host the song
-/// changed and makes the wrapper read the note names again (`PATCHES.md`, *GUI-authored state
-/// dirty* and *Note names*).
-pub fn announce(params: &MxmDrumMachineParams, context: &GuiContext) {
-    if params.names_written.swap(false, Ordering::AcqRel) {
-        let mut state = context.get_state();
-        state.params.clear();
-        context.set_state(state);
-    }
-}
-
-/// The names the host is told: CLAP note names, through the fork's capability.
-pub struct HostNames(pub Arc<MxmDrumMachineParams>);
-
-impl ClapNoteNames for HostNames {
-    /// Each Kit slot whose model plays, on its key and the plugin's one note port, on every channel a
-    /// Kit key sounds on: any (`-1`) while no slot claims a channel, otherwise each unclaimed one.
-    /// A chromatic slot plays every key on its channel, so it names none.
-    fn names(&self) -> Vec<NoteName> {
-        let params = &self.0;
-        let assignments: [PartAssignment; SLOT_COUNT] = std::array::from_fn(|slot| {
-            PartAssignment::from_parameter(params.slots[slot].midi_channel.value())
-        });
-        let claimed = claimed_channels(&assignments);
-        let channels: Vec<i16> = if claimed == 0 {
-            vec![-1]
-        } else {
-            (0..16_i16)
-                .filter(|channel| claimed & (1 << channel) == 0)
-                .collect()
-        };
-        let shown = shown(params);
-        let mut names = Vec::new();
-        for (slot, name) in shown.into_iter().enumerate() {
-            let plays = available(params.slots[slot].model_id()).is_some();
-            let Some(name) =
-                name.filter(|_| plays && assignments[slot] == PartAssignment::FixedNote)
-            else {
-                continue;
-            };
-            let key = i16::from(crate::FIRST_KEY) + slot as i16;
-            names.extend(channels.iter().map(|&channel| NoteName {
-                name: name.clone(),
-                port: 0,
-                key,
-                channel,
-            }));
-        }
-        names
+    fn typed_names(&self) -> &RwLock<Vec<String>> {
+        &self.slot_names
     }
 
-    /// A slot's model gives its made-up name and whether it plays; its MIDI channel whether it is a
-    /// Kit slot, and which channels a Kit key sounds on.
-    fn depends_on(&self) -> Vec<&'static str> {
+    fn names_written(&self) -> &AtomicBool {
+        &self.names_written
+    }
+
+    fn made_up_names(&self) -> [Option<String>; SLOT_COUNT] {
+        let models = std::array::from_fn(|slot| self.slots[slot].model_id());
+        made_up_names(&models)
+    }
+
+    fn plays(&self, slot: usize) -> bool {
+        available(self.slots[slot].model_id()).is_some()
+    }
+
+    fn midi_channel(&self, slot: usize) -> i32 {
+        self.slots[slot].midi_channel.value()
+    }
+
+    fn name_dependencies(&self) -> Vec<&'static str> {
         (0..SLOT_COUNT)
             .flat_map(|slot| {
                 let ids = slot_ids(slot);
@@ -208,7 +52,10 @@ mod tests {
     use super::*;
     use mxm_drum_machine_dsp::model::AVAILABLE_MODELS;
     use nice_plug::params::InternalParamMut;
+    use nice_plug::prelude::ClapNoteNames;
     use nice_plug::prelude::ParamSetter;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
 
     /// The Init kit's slots, each called what it is.
     const INIT: [&str; SLOT_COUNT] = [
@@ -221,15 +68,6 @@ mod tests {
             .into_iter()
             .map(|name| name.unwrap_or_else(|| "-".to_owned()))
             .collect()
-    }
-
-    fn set_channel(params: &MxmDrumMachineParams, slot: usize, value: i32) {
-        // SAFETY: exclusive test ownership; no process or GUI thread exists.
-        unsafe {
-            params.slots[slot]
-                .midi_channel
-                ._internal_set_plain_value(value)
-        };
     }
 
     fn set_model(params: &MxmDrumMachineParams, slot: usize, raw: u8) {
@@ -305,27 +143,6 @@ mod tests {
     }
 
     #[test]
-    fn names_are_kept_canonical() {
-        assert_eq!(canonical_name("  sub\u{7}kick\n "), "subkick");
-        let long = "ø".repeat(40);
-        assert_eq!(
-            canonical_name(&long).chars().count(),
-            NAME_CHARS,
-            "cut in characters, not bytes"
-        );
-        assert_eq!(canonical(None), empty(), "an older state");
-        assert_eq!(canonical(Some("{\"a\": 1}")), empty(), "not a list");
-        assert_eq!(canonical(Some("not json")), empty());
-        let short = canonical(Some("[\"kick\", 4, \" snare \"]"));
-        assert_eq!(short.len(), SLOT_COUNT);
-        assert_eq!(&short[..3], ["kick", "", "snare"]);
-        let many: Vec<String> = (0..40).map(|n| format!("x{n}")).collect();
-        let long_list = canonical(Some(&serde_json::to_string(&many).unwrap()));
-        assert_eq!(long_list.len(), SLOT_COUNT);
-        assert_eq!(long_list[15], "x15");
-    }
-
-    #[test]
     fn the_host_hears_each_kit_slot_on_its_key() {
         let params = MxmDrumMachineParams::default();
         let names = HostNames(Arc::new(params)).names();
@@ -342,43 +159,14 @@ mod tests {
     }
 
     #[test]
-    fn a_claimed_channel_takes_its_slot_out_and_names_the_rest_on_the_others() {
-        let params = Arc::new(MxmDrumMachineParams::default());
-        // The last slot plays every note on Ch 2 (CLAP channel 1).
-        set_channel(&params, 15, 2);
-        set(&params, 0, "subkick");
-        let names = HostNames(params.clone()).names();
-        assert!(
-            names.iter().all(|name| name.key != 51),
-            "chromatic: no key of its own"
-        );
-        assert!(
-            names.iter().all(|name| name.channel != 1),
-            "nor a Kit key on its channel"
-        );
-        let kick: Vec<i16> = names
-            .iter()
-            .filter(|name| name.key == 36)
-            .map(|name| name.channel)
-            .collect();
-        assert_eq!(kick, [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
-        assert!(
-            names
-                .iter()
-                .filter(|name| name.key == 36)
-                .all(|name| name.name == "subkick")
-        );
-    }
-
-    #[test]
     fn an_off_slot_names_nothing_to_the_host() {
         let params = Arc::new(MxmDrumMachineParams::default());
         set_model(&params, 3, 0);
-        set(&params, 3, "ghost");
+        set(&*params, 3, "ghost");
         let names = HostNames(params.clone()).names();
         assert!(names.iter().all(|name| name.key != 39), "Off plays nothing");
         assert_eq!(
-            shown(&params)[3].as_deref(),
+            shown(&*params)[3].as_deref(),
             Some("ghost"),
             "but the box keeps it"
         );

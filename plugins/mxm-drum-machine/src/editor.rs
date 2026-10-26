@@ -8,6 +8,7 @@
 pub mod binding;
 pub mod controls;
 
+use mxm_drum_shell::editor as shell_editor;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -123,56 +124,8 @@ const PREVIEW_SAMPLE_RATE: f32 = 48_000.0;
 const PREVIEW_SECONDS: f32 = 2.0;
 const PREVIEW_ATTACK_SECONDS: f32 = 0.080;
 const PREVIEW_ATTACK_BINS: usize = 64;
-/// The rate a sample pack is written at, whatever the host is running.
-///
-/// Deliberately fixed, and not the host's: a pack is for a tracker or a groovebox, several of
-/// which resample anything that is not 44.1 or 48 on import, and a folder whose rate depends on
-/// whichever session happened to export it is a trap. `kit.txt` records it either way.
-const PACK_SAMPLE_RATE: f32 = 48_000.0;
-/// The text on the export half of the app bar's Resample pair.
-///
-/// Named once because the pair is sized from it: the label used to be shorter than the width the
-/// pair reserved, and when it grew the button overflowed its allocation, wrapped the app bar and
-/// cost the window 335 pt of height. Measuring the string is what stops that happening again.
-const EXPORT_LABEL: &str = "Export samples";
-/// The export's label while its folder dialog is open.
-const EXPORT_CHOOSING: &str = "Choosing…";
-/// The export's help, on the bar's button and on its row in the `…` menu alike.
-const EXPORT_HELP: &str = "Choose a folder and write this kit into it as numbered 24-bit WAV one-shots, for a tracker or a sampler. Turn Resample on first, so you hear them before they leave.";
-/// Why the export cannot be used, on both forms.
-const EXPORT_DISABLED: &str = "Turn Resample on first: a pack is the samples you are hearing.";
-/// Why the export cannot run at all: the capture thread did not start, on both forms.
-const EXPORT_UNAVAILABLE: &str =
-    "Resample cannot run here: the system would not start the thread that records the kit.";
-/// Why the export waits, Resample on and its kit not yet installed, on both forms.
-const EXPORT_CAPTURING: &str =
-    "Resample is still recording the kit: a pack is the samples you are hearing.";
 /// Resample's help, on the bar's toggle and on its row in the `…` menu alike.
 const RESAMPLE_HELP: &str = "Plays every slot from a recording of itself; Tune, Decay and Soft hits still work. To change anything else, turn this off, edit, and turn it on again.";
-/// The pair's rows in the app bar's `…` menu at the bar's last step ([`resample_menu_items`]).
-const RESAMPLE_ITEM: usize = 0;
-const EXPORT_ITEM: usize = 1;
-/// The floor for each half of the Resample/Export pair, before either label is measured.
-const RESAMPLE_MIN_WIDTH: f32 = 86.0;
-
-/// How wide each half of the app-bar pair is drawn.
-///
-/// The widest of the two labels wins, so the two always match and neither ever overflows. It is
-/// measured rather than guessed because mxm-kit's `crates/ui` (*The app bar*, in its `AGENTS.md`
-/// and `NOTES.md`) requires a bar control to reserve its widest form — an under-reserved one does
-/// not clip, it wraps the whole bar.
-fn resample_pair_width(ui: &Ui, params: &MxmDrumMachineParams) -> f32 {
-    let button = egui::TextStyle::Button.resolve(ui.style());
-    let export = ui
-        .painter()
-        .layout_no_wrap(EXPORT_LABEL.to_owned(), button, egui::Color32::PLACEHOLDER)
-        .size()
-        .x;
-    mxm_ui::control::toggle_min_width(ui, params.resample.name())
-        .max(export + SPACE_5 * 2.0)
-        .max(RESAMPLE_MIN_WIDTH)
-}
-
 #[derive(Clone)]
 struct SoundPreview {
     signature: u64,
@@ -213,7 +166,7 @@ pub fn create(
 }
 
 /// Wakes a host that has let the plugin sleep, so a slot asked to be heard sounds now
-/// (`Telemetry::request_audition`).
+/// (`Signals::request_audition`).
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Submits a background task from the editor.
@@ -259,7 +212,7 @@ impl mxm_editor::Panel for MxmDrumMachineApp {
     fn ui(&mut self, ui: &mut Ui, context: &GuiContext) {
         let (telemetry, wake) = (&self.telemetry, &self.wake);
         let audition = |slot: usize| {
-            telemetry.request_audition(slot);
+            telemetry.signals.request_audition(slot);
             wake();
         };
         panel(
@@ -275,7 +228,23 @@ impl mxm_editor::Panel for MxmDrumMachineApp {
             &audition,
         );
         // A name typed, or emptied by a kit load or Init: the host hears of it.
-        crate::slot_names::announce(&self.params, context);
+        crate::slot_names::announce(self.params.as_ref(), context);
+    }
+}
+
+/// The app bar's Resample and Export as the shell draws them (`mxm_drum_shell::editor`).
+fn resample_bar<'a>(
+    params: &'a MxmDrumMachineParams,
+    telemetry: &'a Telemetry,
+    export: Option<&'a dyn Fn(f32, std::path::PathBuf)>,
+) -> shell_editor::Bar<'a> {
+    shell_editor::Bar {
+        resample: &params.resample,
+        help: RESAMPLE_HELP,
+        card: RESAMPLE_CARD,
+        signals: &telemetry.signals,
+        export,
+        ids: shell_editor::Ids::new("mxm-drum-machine"),
     }
 }
 
@@ -293,9 +262,26 @@ pub fn panel(
     audition: &dyn Fn(usize),
 ) {
     let tokens = tokens_for(ui);
+    // The app bar's Resample and Export (`mxm_drum_shell::editor`): a pack asked for goes to the
+    // capture thread, through the plugin's GUI task.
+    let export_pack = spawn.map(|spawn| {
+        move |sample_rate, destination| {
+            spawn(crate::CaptureTask::ExportPack {
+                sample_rate,
+                destination: Some(destination),
+            });
+        }
+    });
+    let bar = resample_bar(
+        params,
+        telemetry,
+        export_pack
+            .as_ref()
+            .map(|export| export as &dyn Fn(f32, std::path::PathBuf)),
+    );
     // No capture is serviced here. `process` asks for one through telemetry and the plugin's own
     // capture thread answers, so that an instrument whose GUI is closed still re-renders when a
-    // parameter moves — `capture_worker` has the history. Only export starts in a frame.
+    // parameter moves — `mxm_drum_shell::capture` has the history. Only export starts in a frame.
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_millis(50));
 
@@ -346,9 +332,9 @@ pub fn panel(
             // **The last thing a narrow bar gives up** (the owner, 2026-09-26): past every other
             // compact step the pair is listed in the `…` menu, so the menu stays whole in a window
             // as narrow as one card. Its cursor card leaves with it.
-            let items = resample_menu_items(ui.ctx(), params, telemetry, spawn);
+            let items = shell_editor::menu_items(ui.ctx(), &bar);
             if mxm_ui::shell::product_actions(ui, items, |ui| {
-                resample_pair(ui, &tokens, params, telemetry, setter, spawn);
+                shell_editor::pair(ui, &tokens, &bar, setter);
             })
             .is_none()
             {
@@ -357,17 +343,17 @@ pub fn panel(
         },
     );
     match mxm_ui::shell::take_product_action(ui.ctx()) {
-        Some(RESAMPLE_ITEM) => {
+        Some(shell_editor::RESAMPLE_ITEM) => {
             let engaged = params.resample.value();
             set_together(
                 setter,
                 &[(&params.resample, if engaged { 0.0 } else { 1.0 })],
             );
         }
-        Some(EXPORT_ITEM) => start_export(ui.ctx()),
+        Some(shell_editor::EXPORT_ITEM) => shell_editor::start_export(ui.ctx(), &bar),
         _ => {}
     }
-    collect_export(ui.ctx(), spawn);
+    shell_editor::collect_export(ui.ctx(), &bar);
     mxm_preset::ui::overlays(ui, &tokens, params, setter, presets);
 
     let slot_peaks = telemetry.take_slot_peaks();
@@ -921,7 +907,7 @@ struct Live<'a, 'b> {
     text_editing: bool,
     /// The host tempo in force: a synced rate reads its division with one and its hertz without.
     tempo: Option<f64>,
-    /// Strikes a slot to hear it (`Telemetry::request_audition`).
+    /// Strikes a slot to hear it (`Signals::request_audition`).
     audition: &'a dyn Fn(usize),
 }
 
@@ -1065,112 +1051,10 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
 /// [`MIN_TARGET`] tall.
 fn slot_row_min_width(ui: &Ui) -> f32 {
     2.0 * SLOT_MARGIN
-        + slot_name_width(ui)
+        + shell_editor::name_width(ui)
         + SLOT_MODEL_MIN
         + 2.0 * mxm_ui::control::toggle_compact_size().x
         + 3.0 * ui.spacing().item_spacing.x
-}
-
-/// The name box's width: about eight letters of the button's text, measured, so a name like
-/// `subkick` shows whole and a longer one is cut (its hover shows it all).
-fn slot_name_width(ui: &Ui) -> f32 {
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let letters = ui.ctx().fonts_mut(|fonts| {
-        fonts
-            .layout_no_wrap("oooooooo".to_owned(), font, egui::Color32::PLACEHOLDER)
-            .rect
-            .width()
-    });
-    letters + 2.0 * ui.spacing().button_padding.x
-}
-
-/// One slot's name box: what the slot is called (`slot_names::shown`), or its number when nothing
-/// names it. Double-click it, or press OPEN with the cursor on it, to type a name; Enter keeps it,
-/// Escape (BACK) cancels, and an empty name brings back the one the slot is given. Returns the box
-/// while it isn't being typed in, so a click on it selects the slot as the model's button does.
-fn slot_name_box(
-    ui: &mut Ui,
-    params: &MxmDrumMachineParams,
-    index: usize,
-    entries: &mut HashMap<&'static str, Option<String>>,
-    text_editing: bool,
-) -> Option<egui::Response> {
-    let key = SLOT_NAME_KEYS[index];
-    let size = egui::vec2(slot_name_width(ui), MIN_TARGET);
-    if let Some(Some(buffer)) = entries.get_mut(key) {
-        let id = ui.make_persistent_id(key);
-        let response = ui.add_sized(
-            size,
-            egui::TextEdit::singleline(buffer)
-                .id(id)
-                .char_limit(crate::slot_names::NAME_CHARS),
-        );
-        // The frame it opens in, it takes the keyboard with the whole name selected, so typing
-        // replaces it.
-        if ui
-            .ctx()
-            .data_mut(|d| d.remove_temp::<bool>(id.with("opened")))
-            .is_some()
-        {
-            response.request_focus();
-            let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-            let end = egui::text::CCursor::new(buffer.chars().count());
-            state
-                .cursor
-                .set_char_range(Some(egui::text::CCursorRange::two(
-                    egui::text::CCursor::new(0),
-                    end,
-                )));
-            state.store(ui.ctx(), id);
-        } else if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
-            entries.insert(key, None);
-        } else if response.lost_focus() {
-            let typed = buffer.clone();
-            crate::slot_names::set(params, index, &typed);
-            entries.insert(key, None);
-        }
-        return None;
-    }
-
-    let shown = crate::slot_names::shown(params)[index].clone();
-    let text = shown.clone().unwrap_or_else(|| format!("{:02}", index + 1));
-    let response = mxm_ui::navigation::at(ui, key, |ui| {
-        let response = ui
-            .add_enabled_ui(!text_editing, |ui| {
-                ui.add_sized(size, egui::Button::new(text).frame(false).truncate())
-            })
-            .inner;
-        mxm_ui::navigation::mark(ui, &response, response.rect);
-        response
-    });
-    let response = response.on_hover_text(slot_name_hover(params, index, shown.as_deref()));
-    let open = response.double_clicked()
-        || (response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)));
-    if open && !text_editing {
-        let id = ui.make_persistent_id(key);
-        ui.ctx()
-            .data_mut(|d| d.insert_temp(id.with("opened"), true));
-        entries.insert(key, Some(shown.unwrap_or_default()));
-    }
-    Some(response)
-}
-
-/// The name box's hover: the whole name, then which slot and which key, or the channel a chromatic
-/// slot plays every key of.
-fn slot_name_hover(params: &MxmDrumMachineParams, index: usize, shown: Option<&str>) -> String {
-    let slot = format!("Slot {:02}", index + 1);
-    let plays = match mxm_part_routing::PartAssignment::from_parameter(
-        params.slots[index].midi_channel.value(),
-    ) {
-        mxm_part_routing::PartAssignment::FixedNote => {
-            format!("note {}", u16::from(crate::FIRST_KEY) + index as u16)
-        }
-        mxm_part_routing::PartAssignment::Channel(channel) => {
-            format!("every note on Ch {}", channel + 1)
-        }
-    };
-    let name = shown.map_or_else(String::new, |name| format!("{name}\n"));
-    format!("{name}{slot}, {plays}. Double-click to name it.")
 }
 
 /// One slot's inventory row: its name, its model — a button that selects the slot for editing and
@@ -1194,8 +1078,15 @@ fn slot_row(
     let row = slot_frame(tokens, selected).show(ui, |ui| {
         ui.horizontal(|ui| {
             let slot = &params.slots[index];
-            if slot_name_box(ui, params, index, entries, text_editing)
-                .is_some_and(|response| response.clicked())
+            if shell_editor::name_box(
+                ui,
+                params,
+                SLOT_NAME_KEYS[index],
+                index,
+                entries,
+                text_editing,
+            )
+            .is_some_and(|response| response.clicked())
             {
                 *selected_slot = index;
             }
@@ -2070,240 +1961,6 @@ fn route_every_slot(params: &MxmDrumMachineParams, setter: &ParamSetter<'_>, own
     set_together(setter, &edits);
 }
 
-/// The sample-pack export action, drawn beside Resample (plan §4.7).
-///
-/// **Available only while Resample is engaged** (owner, 2026-09-21): you export the samples you
-/// have been listening to, which is how you know they sound right before they leave the plugin.
-/// Disengaged, the button is present and disabled — the collection's treatment for a control that
-/// cannot be used — so the feature is discoverable rather than hidden.
-///
-/// `width` is the toggle's, because the two are one decision and sat as a wide control above a
-/// narrow one until the owner said so (2026-09-21). The caller measures it once and gives it to
-/// both, so neither can drift from the other.
-///
-/// The work goes to the plugin's capture thread and never through the audio thread: it renders and
-/// writes files, neither of which belongs in `process` or in an editor frame.
-/// Why Export cannot be used now, or `None`: Resample off, or on with its kit not yet installed
-/// (`Telemetry::frozen`), when the parameters may not be what will play.
-fn export_blocked(params: &MxmDrumMachineParams, telemetry: &Telemetry) -> Option<&'static str> {
-    if telemetry.capture_unavailable() {
-        Some(EXPORT_UNAVAILABLE)
-    } else if !params.resample.value() {
-        Some(EXPORT_DISABLED)
-    } else if telemetry.frozen().is_none() {
-        Some(EXPORT_CAPTURING)
-    } else {
-        None
-    }
-}
-
-fn export_button(ui: &mut Ui, blocked: Option<&str>, width: f32, spawn: Option<&Spawn>) {
-    // **"Export samples", not "Export pack"** (owner, 2026-09-22, and their original wording).
-    // The preset browser's footer already has an `Export…` that packs *presets* into a bank file,
-    // a few centimetres away in the same window; two buttons reading "Export" that do unrelated
-    // things is a trap. "Samples" is the word that separates them.
-    let picking = mxm_ui::offthread::running::<std::path::PathBuf>(ui.ctx(), folder_picker());
-    let button = ui
-        .add_enabled(
-            blocked.is_none() && spawn.is_some() && !picking,
-            egui::Button::new(if picking {
-                EXPORT_CHOOSING
-            } else {
-                EXPORT_LABEL
-            })
-            .min_size(egui::vec2(width, mxm_ui::space::MIN_TARGET)),
-        )
-        .on_hover_text(EXPORT_HELP)
-        .on_disabled_hover_text(blocked.unwrap_or(EXPORT_DISABLED));
-    if button.clicked() {
-        start_export(ui.ctx());
-    }
-}
-
-/// Asks where to write the pack, off the frame.
-///
-/// A pack's natural destination is removable media — an SD card for a tracker — so the export asks
-/// where (owner, 2026-09-21). The dialog is **blocking**, and blocking an editor frame hangs the
-/// host, so `mxm_ui::offthread` runs it on its own thread and [`collect_export`] takes the answer on
-/// a later frame. That is the pattern the sampler and the convolution already use for their file
-/// picks; a *folder* pick is the collection's first, and its Linux portal path is unverified.
-fn start_export(ctx: &egui::Context) {
-    let start = crate::pack::root();
-    mxm_ui::offthread::start(ctx, folder_picker(), move || {
-        let mut dialog = rfd::FileDialog::new().set_title("Write the sample pack into");
-        // Opening on the default pack folder makes "the usual place" one more click rather
-        // than a navigation, without taking the choice away.
-        if let Some(start) = start.filter(|path| path.is_dir()) {
-            dialog = dialog.set_directory(start);
-        }
-        dialog.pick_folder()
-    });
-}
-
-/// Hands a chosen folder to the capture thread, on whichever frame the dialog finished on.
-///
-/// **Every frame, wherever the export was started** — from the bar's button or from the `…` menu
-/// that holds it at the bar's last step — so the answer is collected even when neither is drawn.
-/// Cancelling picks nothing and writes nothing, which is the whole of the cancel path.
-fn collect_export(ctx: &egui::Context, spawn: Option<&Spawn>) {
-    if let Some(chosen) = mxm_ui::offthread::take::<std::path::PathBuf>(ctx, folder_picker())
-        && let Some(spawn) = spawn
-    {
-        spawn(crate::CaptureTask::ExportPack {
-            sample_rate: PACK_SAMPLE_RATE,
-            destination: Some(chosen),
-        });
-    }
-}
-
-/// The pair as the app bar's `…` menu lists it at the bar's last step, in [`RESAMPLE_ITEM`] and
-/// [`EXPORT_ITEM`] order, with the export's status under them when there is one: the same words,
-/// the same enabled state and the same help as the pair drawn on the bar.
-fn resample_menu_items(
-    ctx: &egui::Context,
-    params: &MxmDrumMachineParams,
-    telemetry: &Telemetry,
-    spawn: Option<&Spawn>,
-) -> Vec<mxm_ui::shell::MenuItem> {
-    use mxm_ui::shell::{MenuItem, MenuKind};
-    let engaged = params.resample.value();
-    let picking = mxm_ui::offthread::running::<std::path::PathBuf>(ctx, folder_picker());
-    let mut items = vec![
-        MenuItem {
-            label: params.resample.name().to_owned(),
-            hover: RESAMPLE_HELP.to_owned(),
-            kind: MenuKind::Toggle(engaged),
-            disabled: None,
-        },
-        MenuItem {
-            label: (if picking {
-                EXPORT_CHOOSING
-            } else {
-                EXPORT_LABEL
-            })
-            .to_owned(),
-            hover: EXPORT_HELP.to_owned(),
-            kind: MenuKind::Action,
-            disabled: {
-                let blocked = export_blocked(params, telemetry);
-                (blocked.is_some() || spawn.is_none() || picking)
-                    .then(|| blocked.unwrap_or(EXPORT_DISABLED).to_owned())
-            },
-        },
-    ];
-    let status = export_status_text(ctx, telemetry);
-    if !status.is_empty() {
-        items.push(MenuItem {
-            label: status,
-            hover: String::new(),
-            kind: MenuKind::Note,
-            disabled: None,
-        });
-    }
-    items
-}
-
-/// Where the folder pick is parked while the dialog is open.
-fn folder_picker() -> egui::Id {
-    egui::Id::new("mxm-drum-machine-pack-folder")
-}
-
-/// The export status line, under the pair rather than beside them.
-///
-/// It reserves its space at rest so the card's measured floor does not move when a result arrives.
-fn export_status(ui: &mut Ui, tokens: &Tokens, telemetry: &Telemetry) {
-    let text = export_status_text(ui.ctx(), telemetry);
-    ui.label(egui::RichText::new(text).color(tokens.text_secondary));
-}
-
-/// The last export's outcome in words, empty until there is one. It takes a fresh outcome off the
-/// telemetry and remembers it, so it can be asked twice in a frame — by the bar and by its menu.
-fn export_status_text(ctx: &egui::Context, telemetry: &Telemetry) -> String {
-    if let Some(outcome) = telemetry.take_export() {
-        ctx.memory_mut(|memory| memory.data.insert_temp(export_status_id(), outcome));
-    }
-    let status = ctx.memory(|memory| {
-        memory
-            .data
-            .get_temp::<crate::telemetry::Export>(export_status_id())
-    });
-    match status {
-        Some(crate::telemetry::Export::Written { files, clipped: 0 }) => {
-            format!("Wrote {files} samples")
-        }
-        Some(crate::telemetry::Export::Written { files, clipped }) => {
-            format!("Wrote {files} samples, {clipped} clipped")
-        }
-        Some(crate::telemetry::Export::NoDestination) => {
-            "No folder to write to on this system".to_owned()
-        }
-        Some(crate::telemetry::Export::Failed(why)) => format!("Could not write: {why}"),
-        // Reserved rather than absent: a line that appears only after an export would move the
-        // card's floor, which the paging tests measure.
-        None => String::new(),
-    }
-}
-
-/// Where the last export's outcome is remembered between frames.
-fn export_status_id() -> egui::Id {
-    egui::Id::new("mxm-drum-machine-export-status")
-}
-
-/// The kit-wide Resample toggle and the export beside it (plan §4.7).
-///
-/// Kit-wide like the row above it, and on this card because a frozen kit is an output-stage
-/// decision rather than a per-slot sound one — and because design system §3.1 keeps a rare action
-/// out of the app bar. Unlike *All slots* Resample **is** a parameter, so it goes through the
-/// ordinary bracketed gesture; it is an instance setting, so no kit moves it.
-///
-/// **The two share a row and a width** (owner, 2026-09-21). They are one decision — freeze the
-/// kit, then write the frozen kit out — and drawing a wide toggle above a narrow button read as
-/// two unrelated controls.
-///
-/// **In the app bar, laid out along it** (owner, 2026-09-22), which mxm-kit's `crates/ui` requires
-/// of anything in the bar (its `NOTES.md`, *A control in the app bar is laid out along it*): the
-/// pair opens its own left-to-right region inside the bar's right-to-left group, and reserves a
-/// fixed width so nothing downstream jitters as the status text changes. The status is a bar-width
-/// label rather than the card's line, because the bar is one row high.
-fn resample_pair(
-    ui: &mut Ui,
-    tokens: &Tokens,
-    params: &MxmDrumMachineParams,
-    telemetry: &Telemetry,
-    setter: &ParamSetter<'_>,
-    spawn: Option<&Spawn>,
-) {
-    let width = resample_pair_width(ui, params);
-    ui.allocate_ui_with_layout(
-        egui::vec2(
-            width * 2.0 + ui.spacing().item_spacing.x,
-            mxm_ui::space::MIN_TARGET,
-        ),
-        egui::Layout::left_to_right(egui::Align::Center),
-        |ui| {
-            mxm_ui::navigation::bar_card(ui, RESAMPLE_CARD, |ui| {
-                // The pair shares one width: the toggle is at least the Export button's.
-                mxm_ui::control::toggle_stack(ui, width, |ui| {
-                    ui.scope(|ui| {
-                        binding::toggle(
-                            ui,
-                            tokens,
-                            "resample",
-                            &params.resample,
-                            RESAMPLE_HELP,
-                            setter,
-                        );
-                    })
-                    .response
-                    .rect
-                })
-            });
-            export_button(ui, export_blocked(params, telemetry), width, spawn);
-        },
-    );
-    export_status(ui, tokens, telemetry);
-}
-
 /// The kit-wide output row, under the selected slot's own Output selector: one gesture instead of
 /// sixteen, for the multi-out session a host such as Bitwig then builds with its own chains.
 fn kit_outputs_row(
@@ -2414,7 +2071,7 @@ mod tests {
                 presets,
                 nav,
                 None,
-                &|slot| telemetry.request_audition(slot),
+                &|slot| telemetry.signals.request_audition(slot),
             );
         }
     }
@@ -2574,14 +2231,14 @@ mod tests {
             });
         harness.run_steps(4);
         assert!(
-            harness.query_by_label(EXPORT_LABEL).is_none(),
+            harness.query_by_label(shell_editor::EXPORT_LABEL).is_none(),
             "the pair is not on the bar in the minimum window"
         );
         harness.get_by_label("…").click();
         harness.run_steps(2);
         assert!(
             harness
-                .get_by_label(EXPORT_LABEL)
+                .get_by_label(shell_editor::EXPORT_LABEL)
                 .accesskit_node()
                 .is_disabled(),
             "Export samples is listed, and disabled while Resample is off"
@@ -2961,12 +2618,20 @@ mod tests {
         }
 
         click(&session, &mut panel, spot(SLOT_MODEL_KEYS[2]).rect.center());
-        assert_eq!(telemetry.take_audition(), 1 << 2, "a click strikes slot 3");
+        assert_eq!(
+            telemetry.signals.take_audition(),
+            1 << 2,
+            "a click strikes slot 3"
+        );
 
         // The click put the cursor on the name; OPEN strikes it again.
         session.frame(&mut panel, press(open, none));
         session.frame(&mut panel, Vec::new());
-        assert_eq!(telemetry.take_audition(), 1 << 2, "OPEN strikes slot 3");
+        assert_eq!(
+            telemetry.signals.take_audition(),
+            1 << 2,
+            "OPEN strikes slot 3"
+        );
         drop(panel);
         assert_eq!(state.0, 2, "and selects it");
 
@@ -2982,7 +2647,7 @@ mod tests {
         session.frame(&mut panel, press(open, none));
         session.frame(&mut panel, Vec::new());
         assert_eq!(
-            telemetry.take_audition(),
+            telemetry.signals.take_audition(),
             0,
             "OPEN on a knob strikes nothing"
         );
@@ -3665,30 +3330,6 @@ mod tests {
         assert_ne!(
             &reference.high[..PREVIEW_ATTACK_BINS],
             &tuned.high[..PREVIEW_ATTACK_BINS]
-        );
-    }
-}
-
-#[cfg(test)]
-mod export_tests {
-    use super::*;
-    use nice_plug::params::InternalParamMut;
-    /// Export waits for the kit heard and says why (the whole review): off, still recording, ready,
-    /// and a capture thread that never started.
-    #[test]
-    fn export_waits_for_the_kit_heard_and_says_why() {
-        let params = MxmDrumMachineParams::default();
-        let telemetry = Telemetry::shared();
-        assert_eq!(export_blocked(&params, &telemetry), Some(EXPORT_DISABLED));
-        // SAFETY: exclusive test ownership; no process or GUI thread exists.
-        unsafe { params.resample._internal_set_plain_value(true) };
-        assert_eq!(export_blocked(&params, &telemetry), Some(EXPORT_CAPTURING));
-        telemetry.set_frozen(Some(1));
-        assert_eq!(export_blocked(&params, &telemetry), None);
-        telemetry.set_capture_unavailable(true);
-        assert_eq!(
-            export_blocked(&params, &telemetry),
-            Some(EXPORT_UNAVAILABLE)
         );
     }
 }

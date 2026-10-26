@@ -1103,7 +1103,7 @@ The sample-domain Pitch and Decay of §4.7 add **no** ids: they are the per-slot
 exist, read in the captured domain by `mxm-drum-machine-dsp`'s reader — since 2026-10-07 Controls 1
 and 2, Tune and Decay (`params::control::TUNE`, `DECAY`).
 
-**`refresh_captures` is a control-thread operation and `activate` is where it runs.** It renders
+**`Resample::activate` is a control-thread operation and `activate` is where it runs.** It renders
 seconds of audio and allocates, so it never belongs to `process`. Running it at activation is what
 makes a restored session deterministic: a project that opens with Resample engaged is frozen from
 its first sample, with no worker timing anywhere in the restore path — which is also the path the
@@ -1115,10 +1115,10 @@ storing. A capture that fails leaves the instrument **live** rather than silent,
 way round — the circuits are always a correct rendering of the patch.
 
 **Toggling while the plugin runs goes to the plugin's own capture thread.** The toggle arrives as a
-parameter change in `process`, where seconds of audio cannot be rendered, so `service_captures`
-stores the wanted rate in `telemetry::capture_wanted` and `capture_worker` renders and publishes.
-The instrument keeps playing live until the kit lands. **Disengaging is immediate**, because
-dropping the mode needs no render.
+parameter change in `process`, where seconds of audio cannot be rendered, so `Resample::service`
+stores the wanted rate in `Signals::capture_wanted` (`mxm_drum_shell::signals`) and the shell's
+capture thread (`mxm_drum_shell::capture`) renders and publishes. The instrument keeps playing live
+until the kit lands. **Disengaging is immediate**, because dropping the mode needs no render.
 
 ### Resample and Export samples live in the app bar
 
@@ -1127,13 +1127,13 @@ pickers and the LFOs belongs to the *selected slot*, so a global Resample on the
 as "resample this drum". Design system §3.1 slot 6 already keeps Master beside the meter for the
 same reason, and the pair now sits at the left of that group.
 
-They are laid out *along* the bar, in their own left-to-right region inside its right-to-left
-group, and **sized from the widest of the two labels** (`resample_pair_width`), which the toggle
-takes through `mxm_ui::control::toggle_stack`. That measurement is
-not decoration: the export label was renamed from a shorter string to `Export samples`, overflowed
-the width the pair had reserved, wrapped the whole app bar and cost the window 335 pt of height.
-mxm-kit's `crates/ui` "reserve the widest form" (*The app bar*, in its `AGENTS.md` and `NOTES.md`)
-is what an under-reserved bar control breaks.
+They are laid out *along* the bar, in their own left-to-right region inside its right-to-left group,
+and **sized from the widest of the two labels** (`mxm_drum_shell::editor::pair_width`), which the
+toggle takes through `mxm_ui::control::toggle_stack`. That measurement is not decoration: the export
+label was renamed from a shorter string to `Export samples`, overflowed the width the pair had
+reserved, wrapped the whole app bar and cost the window 335 pt of height. mxm-kit's `crates/ui`
+"reserve the widest form" (*The app bar*, in its `AGENTS.md` and `NOTES.md`) is what an
+under-reserved bar control breaks.
 
 **It is "Export samples", not "Export pack".** The preset browser's footer already carries an
 `Export…` that packs *presets* into a bank file, in the same window; two buttons reading "Export"
@@ -1142,18 +1142,19 @@ that do unrelated things is a trap.
 The Resample toggle is a `navigation::bar_card` like Master, so the keyboard cursor reaches it.
 
 **They are the last thing a narrow bar gives up** (owner, 2026-09-26). The pair is the bar's
-`shell::product_actions`: past every other compact step it leaves the bar for the `…` menu, as
-rows with the same words, help and enabled state (`resample_menu_items`), and its cursor card
-leaves with it (`navigation::bar_card_absent`). Choosing Resample there is the same bracketed
+`shell::product_actions`: past every other compact step it leaves the bar for the `…` menu, as rows
+with the same words, help and enabled state (`mxm_drum_shell::editor::menu_items`), and its cursor
+card leaves with it (`navigation::bar_card_absent`). Choosing Resample there is the same bracketed
 write as the toggle; choosing Export starts the same folder pick, and the answer is collected every
-frame wherever it was started (`collect_export`). Without this the pair kept the bar about 740
-points wide and hid the `…` menu in any narrower window; with it the bar sets `MINIMUM`, and
-`in_the_minimum_window_the_pair_is_in_the_menu_and_resample_works_from_it` holds the menu path.
+frame wherever it was started (`mxm_drum_shell::editor::collect_export`). Without this the pair kept
+the bar about 740 points wide and hid the `…` menu in any narrower window; with it the bar sets
+`MINIMUM`, and `in_the_minimum_window_the_pair_is_in_the_menu_and_resample_works_from_it` holds the
+menu path.
 
 ### One capture per engage — a parameter edit while frozen renders nothing
 
 **This is the rule** (owner, 2026-09-21). To change a frozen kit you turn Resample off, make the
-edits, and turn it on again. `service_captures` therefore never consults the patch; `captured` is
+edits, and turn it on again. `Resample::service` therefore never consults the patch; `captured` is
 the installed kit's **sample rate** and nothing else, and `asked` is cleared only by disengaging.
 
 It is a correctness rule, not an economy. `Engine::set_captures` resets every capture voice,
@@ -1191,34 +1192,34 @@ editor frame instead of from `process`, which narrowed it enough to pass the val
 introduced a worse bug: **with the GUI closed nothing submitted at all**, so a host or a controller
 moving a captured axis left the frozen kit stale indefinitely.
 
-`capture_worker::CaptureWorker` is one thread per plugin instance, spawned in `activate` and joined
-in its own `Drop`. Nothing is shared, so there is no `Weak` to fail; shutdown is a flag this module
-owns; and the worker reads the request straight out of telemetry, so it does not care whether an
-editor exists. `task_executor` is deliberately a no-op — **do not put work back on it**.
+`mxm_drum_shell::capture::CaptureWorker` is one thread per plugin instance, spawned in `activate`
+and joined in its own `Drop`. Nothing is shared, so there is no `Weak` to fail; shutdown is a flag
+this module owns; and the worker reads the request straight out of telemetry, so it does not care
+whether an editor exists. `task_executor` is deliberately a no-op — **do not put work back on it**.
 
 The costs, stated rather than hidden: one parked thread per instance, waking every `POLL` (20 ms)
 to read one atomic, because `process` must not touch a lock and so cannot signal a condvar; and a
 teardown that waits for at most one `CHUNK_FRAMES` render.
 
-`service_captures` runs once per `process` call and is a pointer swap, a few comparisons and one
-relaxed store: no allocation, no lock, and **nothing dropped**, because a displaced kit is
-megabytes of `Vec<f32>`. `capture_bank::CaptureBank` is the handoff — a one-kit lock-free ring
-where the audio thread *takes* ownership rather than borrowing, so it needs no reader counts, and
-where a ready kit **waits** while a retired one is still unfreed, which is what guarantees the
-audio thread always has somewhere to put what it displaces.
+`Resample::service` runs once per `process` call and is a pointer swap, a few comparisons and one
+relaxed store: no allocation, no lock, and **nothing dropped**, because a displaced kit is megabytes
+of `Vec<f32>`. `mxm_drum_shell::bank::CaptureBank` is the handoff — a one-kit lock-free ring where
+the audio thread *takes* ownership rather than borrowing, so it needs no reader counts, and where a
+ready kit **waits** while a retired one is still unfreed, which is what guarantees the audio thread
+always has somewhere to put what it displaces.
 
-**Only a kit this engage asked for installs.** `MxmDrumMachine::engagement` numbers the engages:
-it advances when a disengage ends one (once — the block where something was frozen or asked) and
-at every activation, which supersedes whatever was asked before it and captures the current patch
-itself. A request carries the number (`telemetry::CaptureRequest`), the worker stamps it on the
-kit (`KitCapture::answering`), and `service_captures` installs a kit only if it carries the
-current number and rate; any other is retired unplayed. Off, edit, on is the owner's way to change
-a frozen kit, and without the number a kit the old engage asked for — still rendering, or waiting
-in the bank because the disengage came first — installed as the new engage's: the old patch, and
-the new engage, having a kit, never asked for the edited one
+**Only a kit this engage asked for installs.** `Resample::engagement` (`mxm_drum_shell::capture`)
+numbers the engages: it advances when a disengage ends one (once — the block where something was
+frozen or asked) and at every activation, which supersedes whatever was asked before it and captures
+the current patch itself. A request carries the number (`mxm_drum_shell::signals::CaptureRequest`),
+the worker stamps it on the kit (`KitCapture::answering`), and `Resample::service` installs a kit
+only if it carries the current number and rate; any other is retired unplayed. Off, edit, on is the
+owner's way to change a frozen kit, and without the number a kit the old engage asked for — still
+rendering, or waiting in the bank because the disengage came first — installed as the new engage's:
+the old patch, and the new engage, having a kit, never asked for the edited one
 (`a_kit_from_an_earlier_engage_is_never_installed`,
 `an_activation_supersedes_a_kit_still_rendering_and_leaves_room_to_disengage`). **The worker also
-abandons a render a newer request overtakes** (`telemetry.capture_requested()`, checked between
+abandons a render a newer request overtakes** (`Signals::capture_requested`, checked between
 chunks and before publishing), which spares rendering a kit that would be refused
 (`a_render_a_newer_request_overtakes_is_abandoned`).
 
@@ -1231,11 +1232,11 @@ it — after an activation has captured synchronously — and the next disengage
 a debug assertion on the audio thread, or a leaked kit in release
 (`a_take_and_a_disengage_between_two_drains_both_find_room`, and the activation test above).
 
-**A test that stands in for the worker stops it first** (`plugin.worker = None`, which joins the
-thread): a live worker answers the same request with a kit of its own, on its own clock, under
-the test's assertions. Left running, it made
-`toggling_resample_while_running_swaps_the_kit_in_through_the_bank` fail only under load — which
-is how the slot count above was found.
+**A test that stands in for the worker stops it first** (`plugin.resample.worker = None`, which
+joins the thread): a live worker answers the same request with a kit of its own, on its own clock,
+under the test's assertions. Left running, it made
+`toggling_resample_while_running_swaps_the_kit_in_through_the_bank` fail only under load — which is
+how the slot count above was found.
 
 **The rate travels with the request**, because only `process` knows it. A request is a single
 `AtomicU64` — the rate's `f32` bits and the engage number — so repeated asks coalesce into the most
@@ -1263,13 +1264,13 @@ listening to. Disengaged, the button is present and disabled with its reason on 
 the collection's treatment for a control that cannot be used rather than a hidden one.
 
 It runs on the capture thread, reached from an editor frame through `editor::Spawn` and
-`capture_worker::Gate`, and never touches the audio thread: rendering and writing files belong to
-neither `process` nor an editor frame. Export is the *only* thing an editor frame asks for — a
-capture is asked for by `process` — because it is the only one that begins with a person pressing
-something. The gate exists from construction and outlives the thread, so a click either side of
-the thread's life is inert rather than an error. `telemetry::Export` carries the outcome back for
-the status line, which reserves its space at rest so a result arriving cannot move the card's
-measured floor.
+`mxm_drum_shell::capture::Gate`, and never touches the audio thread: rendering and writing files
+belong to neither `process` nor an editor frame. Export is the *only* thing an editor frame asks for
+— a capture is asked for by `process` — because it is the only one that begins with a person
+pressing something. The gate exists from construction and outlives the thread, so a click either
+side of the thread's life is inert rather than an error. `mxm_drum_shell::signals::Export` carries
+the outcome back for the status line, which reserves its space at rest so a result arriving cannot
+move the card's measured floor.
 
 **The destination is chosen, and it travels with the job.** Export opens a folder chooser (owner,
 2026-09-21) — a pack's natural home is an SD card, not AppData — starting at the default pack
@@ -1278,22 +1279,22 @@ hangs the host, so it runs through `mxm_ui::offthread` exactly as the sampler's 
 convolution's file picks do; this is the collection's first *folder* pick and **its Linux portal
 path is unverified from this machine**. Cancelling writes nothing.
 
-The chosen path is resolved before the worker sees it, so `capture_worker` never consults the
-environment. That is not only tidiness: while the worker called `pack::root()` itself, every run
-of the export test wrote a real sixteen-file pack into the runner's own data folder — fourteen
-accumulated in the owner's AppData before anyone noticed. **A test names a temporary directory;
-nothing in this crate may resolve the real root inside one.**
+The chosen path is resolved before the worker sees it, so the shell's capture thread
+(`mxm_drum_shell::capture`) never consults the environment. That is not only tidiness: while the
+worker called `pack::root()` itself, every run of the export test wrote a real sixteen-file pack
+into the runner's own data folder — fourteen accumulated in the owner's AppData before anyone
+noticed. **A test names a temporary directory; nothing in this crate may resolve the real root
+inside one.**
 
-**A pack is written at a fixed 48 kHz** (`editor::PACK_SAMPLE_RATE`), whatever the host is running.
-Several trackers and grooveboxes resample anything that is not 44.1 or 48 on import, and a folder
-whose rate depends on whichever session happened to export it is a trap. The capture that *plays*
-follows the host instead, because it has to line up with the engine; these are two different rates
-on purpose, and `kit.txt` records the one in the files.
+**A pack is written at a fixed 48 kHz** (`mxm_drum_shell::editor::PACK_SAMPLE_RATE`), whatever the
+host is running. Several trackers and grooveboxes resample anything that is not 44.1 or 48 on
+import, and a folder whose rate depends on whichever session happened to export it is a trap. The
+capture that *plays* follows the host instead, because it has to line up with the engine; these are
+two different rates on purpose, and `kit.txt` records the one in the files.
 
-**A default destination and no dialog** (owner, 2026-09-21), following the player: `mxm/sample-packs`
-under the platform local data directory, resolved through `pack::root_under` with the root injected
-so a test never writes into the folder of whoever ran it. That decision removed the `rfd`
-dependency question rather than answering it.
+**The default pack folder**, where the chooser starts, follows the player: `mxm/sample-packs` under
+the platform local data directory, resolved through `mxm_drum_shell::pack::root_under` with the
+root injected so a test never writes into the folder of whoever ran it.
 
 **An existing pack is never overwritten.** Sixteen files and a manifest can fail halfway, which
 per-file atomicity does not prevent, so a pack is written into a uniquely named sibling directory
@@ -1538,3 +1539,17 @@ design's; the owner: "fix the Resample bugs in the drum machine too". Each has i
   host: a pack is now written a slot at a time, each buffer reserved fallibly. A file is written
   a mebibyte at a time with the cancel checked between, so a slow card never holds a teardown for
   a whole file. The tail is worked out in integers, as a float rounds a long one down.
+
+## The plugin side, shared with model drums (2026-10-26)
+
+The owner: "model drums and drum machine be refactored to share more code?", then "yes, commit it
+and start" (the workspace's `ops/plans/plan-drum-shell.md`). Model drums had taken this machine's
+slot names and Resample that day, and every fix since went into both, so what the two copies had
+the same moved to mxm-kit's `mxm-drum-shell`: the names' rules, the capture bank, the capture
+thread and the kit each engage heard, the state machine `activate` and `process` run, the pack's
+writer and manifest, the signals, and the editor's Resample/Export pair and name box. What only
+this machine knows stays: its parameters as the names read them, its capture (the circuits, no
+model library), its one-shots through its reader (the rate read every frame, four readers), its
+Resample help naming Soft hits. No behaviour moved: every remaining test kept its assertions;
+the generic ones are the shell's now.
+

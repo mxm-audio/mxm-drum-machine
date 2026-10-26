@@ -18,6 +18,11 @@ Owns `Cargo.toml`, `README.md`, `control-map.json`, `src/`, `presets/`, `tests/`
 the licence is the repository's `LICENSE`. It owns
 CLAP/parameter identity, parameter smoothing, host event translation, telemetry and editor.
 DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`](../../crates/mxm-drum-machine-dsp/AGENTS.md).
+**What it shares with mxm-model-drums is mxm-kit's `mxm-drum-shell`** (2026-10-26): the slot names'
+rules and the host's note names, Resample's capture thread, bank and state machine, the pack's
+writer, the signals, and the editor's Resample, Export and name box. Here are what only this machine
+knows: its slots as the names read them (`slot_names.rs`, `DrumSlots`), its capture
+(`capture.rs`, `Capturer`) and its one-shots (`pack.rs`, `OneShots`); the rules below hold for both.
 
 # Local Contracts
 
@@ -59,13 +64,13 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   each Kit slot whose model plays, on its key (`FIRST_KEY` + slot) and note port 0, on channel -1
   while no slot claims a channel and otherwise on each unclaimed one. A chromatic slot names nothing.
 - **The name box** is first in the slot row, in place of the number, about eight letters wide
-  (`slot_name_width`, measured from the font) and cut beyond; a slot with nothing to call it shows
+  (`mxm_drum_shell::editor::name_width`, measured from the font) and cut beyond; a slot with nothing to call it shows
   its number. It is a cursor stop (`SLOT_NAME_KEYS`): double-click or OPEN types, Enter keeps,
   Escape (BACK) cancels, and the hover says the whole name, the slot and its note or channel.
 - **A click on a slot's model name, or OPEN with the cursor on it, selects the slot and strikes
   it**, to hear it while editing (the owner, 2026-10-26; Enter rather than a key of its own, [NOTES.md
   § Hearing a slot](NOTES.md#hearing-a-slot-from-the-editor-2026-10-26)): at `AUDITION_VELOCITY`,
-  through `Telemetry::request_audition`, which `process` strikes at its next buffer's first sample
+  through `Signals::request_audition`, which `process` strikes at its next buffer's first sample
   as a hit on that slot (a buffer of no frames leaves it for the next; `reset` drops it); the editor's GUI task wakes a host that let the plugin sleep (nice-plug's
   process wake). The names are cursor stops (`SLOT_MODEL_KEYS`), as the name boxes are. Held by
   `a_click_or_open_on_a_model_name_selects_and_strikes_its_slot` and
@@ -142,8 +147,8 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
 - Output is the last card: Level/Pan, Output, Choke group, MIDI channel, then **All slots**
   (`binding::set_together`), which is not a parameter and stores nothing.
 - **Kit-wide controls sit in the app bar**: Master, then Resample and Export samples, sized from the
-  widest label (`resample_pair_width`) and the last thing a narrow bar folds into `…`
-  (`resample_menu_items`). The button reads "Export samples", never "Export pack".
+  widest label (`mxm_drum_shell::editor::pair_width`) and the last thing a narrow bar folds into `…`
+  (`mxm_drum_shell::editor::menu_items`). The button reads "Export samples", never "Export pack".
 - **The panel names a control by its model's name, the host by its number** (`Axis::name`); route
   rows read their knob's name (Level, not *Amplitude*). An Off or unavailable id keeps the eleven
   general controls, disabled. **No engineering prose in editor copy**; the model's description is
@@ -171,40 +176,40 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
 
 ## Resample and the sample pack ([§ Resample](NOTES.md#resample-is-an-instance-setting-and-the-capture-happens-at-activation), [§ pack](NOTES.md#the-sample-pack--packrs))
 
-- `resample` is off in Init and every kit; no kit engages it. `refresh_captures` runs in `activate`,
+- `resample` is off in Init and every kit; no kit engages it. `Resample::activate` runs in `activate`,
   never in `process`; a failed capture leaves the instrument live.
 - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
   sound. To change a frozen kit: off, edit, on. Tune, Decay and Soft hits (Controls 1, 2 and 5)
   stay live as playback controls; Tune, a key and bend only on a model that has Tune, as live.
 - **Export writes the kit heard, under its name**: the patches its kit was captured from and the
-  kit's name then (`capture_worker::Heard`, the engage `Telemetry::frozen` names), Tune and Decay
+  kit's name then (`mxm_drum_shell::capture::Heard`, the engage `Signals::frozen` names), Tune and Decay
   as set now, never an edit or a kit loaded since; a pack is struck at full strength, so Soft hits,
   a velocity curve, cannot reach it. **An activation keeps a kit at its rate whose patch has not
   moved** and captures one that has, as a state restored between two activations.
-- Running toggles go to `capture_worker::CaptureWorker`, one thread per instance joined in its
+- Running toggles go to the shell's `CaptureWorker` (`mxm_drum_shell::capture`), one thread per instance joined in its
   `Drop`. **Never use nice-plug's `AsyncExecutor::execute_background`; `task_executor` stays a no-op.**
-- `service_captures` is a pointer swap with no allocation, lock or drop. `CaptureBank` hands kits
+- `Resample::service` (the shell's, from `process`) is a pointer swap with no allocation, lock or drop. The shell's `CaptureBank` hands kits
   over by ownership and keeps two retired slots. Only a kit carrying the current engage number
-  (`MxmDrumMachine::engagement`) and rate installs; the worker abandons overtaken renders.
-- A test standing in for the worker stops it first (`plugin.worker = None`).
+  (`Resample::engagement`) and rate installs; the worker abandons overtaken renders.
+- A test standing in for the worker stops it first (`plugin.resample.worker = None`).
 - `pack.rs` writes 24-bit WAV one-shots and a manifest through mxm-kit's `mxm-audio-file`, never
   `mxm-audio-file-decode`. Files stop before the mix: unity gain, centred, Tune and Decay applied
-  (`the_mix_cannot_change_an_exported_byte`). A pack's rate is fixed (`editor::PACK_SAMPLE_RATE`),
+  (`the_mix_cannot_change_an_exported_byte`). A pack's rate is fixed (`mxm_drum_shell::editor::PACK_SAMPLE_RATE`),
   whatever the host runs at; the capture that plays follows the host.
 - **Export requires Resample's kit installed**: disabled, with its reason, while Resample is off or
-  still recording (`editor::export_blocked`), and refused by the capture thread too
-  (`capture_worker::EXPORT_NOT_READY`), as the parameters may not be what will play. It runs on the
-  capture thread through `capture_worker::Gate`, and picks its folder through `mxm_ui::offthread`.
+  still recording (`mxm_drum_shell::editor::export_blocked`), and refused by the capture thread too
+  (`mxm_drum_shell::capture::EXPORT_NOT_READY`), as the parameters may not be what will play. It runs on the
+  capture thread through the shell's `Gate`, and picks its folder through `mxm_ui::offthread`.
 - **The capture thread stops for teardown at every step**: between chunks of a render and of a
   one-shot, and every mebibyte of a pack's files (`pack::write_until`, the staging removed). What
   a teardown can wait for is one mebibyte written. **A pack is written one slot at a time**, each
   one-shot's buffer reserved fallibly (`PackError::Allocation`), as a slot read slowly can be long. A kit named for a Windows device (`CON`, `AUX`,
   `COM1`, …) takes `-kit` (`pack::slug`).
-- **A capture thread that could not start is said** (`Telemetry::capture_unavailable`): Resample
+- **A capture thread that could not start is said** (`Signals::capture_unavailable`): Resample
   stays live and correct, and Export is disabled with why.
 - **A test writes its packs under the build's own folder** (`pack::tests::scratch`), never on C:;
-  nothing may resolve the real pack root inside one (`pack::root_under`). An existing pack is never
-  overwritten, and each write stages in a directory of its own (`pack::claim_staging`) whose
+  nothing may resolve the real pack root inside one (`mxm_drum_shell::pack::root_under`). An existing pack is never
+  overwritten, and each write stages in a directory of its own (the shell's `pack`) whose
   rename takes the name, so two instances exporting at once write two whole packs.
 
 ## Realtime ([NOTES.md § Realtime](NOTES.md#realtime))

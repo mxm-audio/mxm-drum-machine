@@ -12,8 +12,7 @@ macro_rules! plugin_name {
 pub const NAME: &str = plugin_name!();
 pub const CLAP_ID: &str = concat!("dk.mxm.", plugin_name!());
 
-pub mod capture_bank;
-pub mod capture_worker;
+pub mod capture;
 pub mod editor;
 pub mod pack;
 pub mod params;
@@ -52,7 +51,7 @@ fn legacy_note(voice_id: VoiceID, channel: Channel, key: Key) -> (Option<i32>, u
 }
 
 const INTERNAL_BLOCK: usize = 64;
-/// How hard a slot is struck when the editor asks to hear it (`Telemetry::request_audition`): 100 of
+/// How hard a slot is struck when the editor asks to hear it (`Signals::request_audition`): 100 of
 /// MIDI's 127, a DAW's usual note (the owner, 2026-10-26: "an easy way to test the sound when
 /// editing").
 pub const AUDITION_VELOCITY: f32 = 100.0 / 127.0;
@@ -96,7 +95,7 @@ pub enum CaptureTask {
         destination: Option<std::path::PathBuf>,
     },
     /// Nothing to do: a GUI task scheduled only to wake a host that has let the plugin sleep, so a
-    /// slot the editor asks to hear sounds now (`Telemetry::request_audition`; nice-plug's MXM
+    /// slot the editor asks to hear sounds now (`Signals::request_audition`; nice-plug's MXM
     /// patch, the GUI-task process wake).
     Wake,
 }
@@ -159,35 +158,9 @@ pub struct MxmDrumMachine {
     /// was released; NoteOff and CC123 end its expression, not the hit.
     parts: PartState<SLOT_COUNT, NUM_CHANNELS>,
     multi_output: bool,
-    /// The rate the installed kit was rendered at, or `None` for no kit.
-    ///
-    /// While engaged a frozen kit is captured once, and a parameter edit never re-renders it
-    /// (owner, 2026-09-21), so `process` compares only the rate: a kit rendered at a rate the
-    /// engine has since left is unplayable rather than merely out of date. An activation also
-    /// compares the patch it was captured from (`refresh_captures`).
-    captured: Option<f32>,
-    /// The lock-free handoff the capture worker publishes into (`capture_bank`).
-    bank: Arc<capture_bank::CaptureBank>,
-    /// Whether this engage has already asked for its one capture.
-    ///
-    /// Cleared by disengaging, which is the only thing that arms another — the owner's rule is
-    /// that a frozen kit is captured once and edits happen with Resample off.
-    asked: bool,
-    /// **Which engage this is**: advanced when a disengage ends one and at every activation.
-    ///
-    /// A request carries it and the worker stamps it on the kit (`KitCapture::request`), and only
-    /// a kit stamped with the current one installs. Off, edit, on is the owner's way to change a
-    /// frozen kit, and a kit the old engage asked for can land after it — still rendering, or
-    /// waiting in the bank because the disengage came first. Installed, it was the old patch, and
-    /// having a kit the new engage never asked for the edited one.
-    engagement: u32,
-    /// The thread that renders kits, spawned at `activate` and joined when the plugin is dropped.
-    ///
-    /// The plugin owns it rather than using nice-plug's shared background executor;
-    /// `capture_worker` documents the crash that forced that, at length.
-    worker: Option<capture_worker::CaptureWorker>,
-    /// The editor's way of reaching that thread, which exists whether or not one is running.
-    export_gate: capture_worker::Gate,
+    /// Resample: the engage count, the capture thread, its bank and its gate, the drum machine's
+    /// capture behind them (`mxm_drum_shell::capture::Resample`, `capture::Capture`).
+    resample: mxm_drum_shell::capture::Resample<capture::Capture>,
     telemetry: Arc<telemetry::Telemetry>,
     routing: [Routing; SLOT_COUNT],
     /// Each LFO's rate its sync resolved for this block, or `None` for its free rate.
@@ -198,18 +171,14 @@ pub struct MxmDrumMachine {
 
 impl Default for MxmDrumMachine {
     fn default() -> Self {
+        let params = Arc::new(MxmDrumMachineParams::default());
         Self {
-            params: Arc::new(MxmDrumMachineParams::default()),
+            resample: mxm_drum_shell::capture::Resample::new(capture::Capture(Arc::clone(&params))),
+            params,
             engine: Box::new(Engine::new()),
             sample_rate: 48_000.0,
             parts: PartState::new(),
             multi_output: false,
-            captured: None,
-            bank: Arc::new(capture_bank::CaptureBank::new()),
-            asked: false,
-            engagement: 0,
-            worker: None,
-            export_gate: capture_worker::Gate::default(),
             telemetry: telemetry::Telemetry::shared(),
             routing: [Routing::new(); SLOT_COUNT],
             tempo_bpm: None,
@@ -464,161 +433,6 @@ impl MxmDrumMachine {
         }
     }
 
-    #[inline]
-    /// Installs a rendered kit and asks for one when the parameters have moved (plan §4.7).
-    ///
-    /// **Audio thread, once per `process` call.** Everything here is a pointer swap, a handful of
-    /// comparisons and at most one task submission: no allocation, no lock, and nothing dropped —
-    /// a displaced kit goes back to `capture_bank` for the worker to free.
-    ///
-    /// Disengaging is immediate, because dropping the mode needs no render. Engaging asks the
-    /// worker once (one capture per engage, below), and only the kit that engage asked for is
-    /// installed (`engagement`).
-    fn service_captures(&mut self) {
-        if !self.params.resample.value() {
-            // **A disengage ends the engage**, so whatever it asked for — still rendering, or
-            // waiting in the bank — is refused when it lands. Only once per engage: after this
-            // block nothing is frozen and nothing asked.
-            if self.engine.is_frozen() || self.asked {
-                self.engagement = self.engagement.wrapping_add(1);
-            }
-            if self.engine.is_frozen() {
-                if let Some(displaced) = self.engine.set_captures(None) {
-                    self.bank.retire(displaced);
-                }
-                self.captured = None;
-                self.telemetry.set_frozen(None);
-            }
-            // Cleared whether or not a kit was installed: disengaging is what arms the next
-            // capture, and a request that never landed must not count as this engage's one.
-            self.asked = false;
-            return;
-        }
-
-        if let Some(kit) = self.bank.take() {
-            // **Only a kit this engage asked for, at this rate, installs**; any other is retired
-            // unplayed. One from an earlier engage is the patch as it was
-            // (`a_kit_from_an_earlier_engage_is_never_installed`), and this engage has asked, or
-            // already has its kit, so nothing more is needed. One at a rate the engine has left
-            // would play every slot at the wrong speed, so the comparison below asks again.
-            let kit_rate = kit.sample_rate();
-            let this_engage = kit.request() == self.engagement;
-            #[allow(clippy::float_cmp)]
-            let usable = this_engage && kit_rate == self.sample_rate;
-            if usable {
-                // The `Box` goes straight through: unwrapping it would free an allocation here
-                // and reboxing the displaced kit would make one, both of which `process` forbids.
-                if let Some(displaced) = self.engine.set_captures(Some(kit)) {
-                    self.bank.retire(displaced);
-                }
-                self.captured = Some(kit_rate);
-                self.telemetry.set_frozen(Some(self.engagement));
-            } else {
-                self.bank.retire(kit);
-                if this_engage {
-                    // Ask again, at the rate the engine is actually running.
-                    self.asked = false;
-                }
-            }
-        }
-
-        // **One capture per engage** (owner, 2026-09-21). A parameter edit while frozen renders
-        // nothing: to change a frozen kit you turn Resample off, edit, and turn it on again.
-        //
-        // This is the rule, not an optimisation. Re-rendering on every edit meant a knob sweep
-        // queued a kit per block, and installing one resets every sounding reader — so moving
-        // Decay cut and crackled through the whole kit. Invalidating on the patch is what made
-        // that possible, so the patch is no longer consulted; only the rate is, because a kit
-        // rendered at a rate the engine has left is unplayable rather than merely stale.
-        #[allow(clippy::float_cmp)]
-        let have = self.captured == Some(self.sample_rate);
-        if have {
-            self.asked = false;
-            return;
-        }
-        if !self.asked {
-            // **`process` asks; it does not render.** `capture_worker` owns the thread and the
-            // reason it is not nice-plug's, and `telemetry::capture_wanted` is the whole channel.
-            self.asked = true;
-            self.telemetry
-                .request_capture(self.sample_rate, self.engagement);
-        }
-    }
-
-    /// Brings the frozen kit into line with the parameters (plan §4.7).
-    ///
-    /// **A control-thread operation.** It renders seconds of audio and allocates, so it belongs to
-    /// `activate` and to the background task — never to `process`. Activation is the important one:
-    /// a session or an offline bounce that opens with Resample engaged is frozen from its first
-    /// sample, with no worker timing anywhere in the restore path.
-    ///
-    /// A capture that fails leaves the instrument live rather than silent, which is the safe way
-    /// round: the circuits are always a correct rendering of the patch.
-    fn refresh_captures(&mut self) {
-        use mxm_drum_machine_dsp::capture::capture_patch;
-        if !self.params.resample.value() {
-            drop(self.engine.set_captures(None));
-            self.captured = None;
-            self.asked = false;
-            self.telemetry.set_frozen(None);
-            return;
-        }
-        let patches = capture_patches(&self.params);
-        // **A kit at this rate whose patch has not moved is kept** (re-rendering it would only
-        // restart every sounding reader), as this engage's; a state restored since, at the same
-        // rate, is captured again (model drums' review, 2026-10-26).
-        let heard = self
-            .telemetry
-            .frozen()
-            .and_then(|engagement| self.export_gate.heard_for(engagement))
-            .map(|heard| heard.patches);
-        #[allow(clippy::float_cmp)]
-        let at_rate = self.captured == Some(self.sample_rate);
-        if at_rate
-            && let Some(heard) = heard
-            && heard
-                .iter()
-                .zip(&patches)
-                .all(|(was, now)| capture_patch(*was) == capture_patch(*now))
-        {
-            // The patch has not moved, so the kit loaded now names what plays.
-            self.export_gate.remember(
-                self.engagement,
-                capture_worker::Heard {
-                    patches: heard,
-                    name: kit_name(&self.params),
-                },
-            );
-            self.telemetry.set_frozen(Some(self.engagement));
-            self.asked = false;
-            return;
-        }
-        match mxm_drum_machine_dsp::capture::capture_kit(&patches, self.sample_rate) {
-            Ok(kit) => {
-                drop(
-                    self.engine
-                        .set_captures(Some(Box::new(kit.answering(self.engagement)))),
-                );
-                self.captured = Some(self.sample_rate);
-                self.export_gate.remember(
-                    self.engagement,
-                    capture_worker::Heard {
-                        patches,
-                        name: kit_name(&self.params),
-                    },
-                );
-                self.telemetry.set_frozen(Some(self.engagement));
-                self.asked = false;
-            }
-            Err(_) => {
-                drop(self.engine.set_captures(None));
-                self.captured = None;
-                self.telemetry.set_frozen(None);
-                self.asked = false;
-            }
-        }
-    }
-
     fn next_frame(&self) -> ([SlotPatch; SLOT_COUNT], ModulationPatch, f32) {
         let any_solo = self.params.slots.iter().any(|slot| slot.solo.value());
         let slots = std::array::from_fn(|index| {
@@ -773,7 +587,7 @@ impl Plugin for MxmDrumMachine {
     /// Deliberately empty: this plugin does not use nice-plug's shared background thread.
     ///
     /// A task queued on it when its instance is destroyed kills the thread every other instance
-    /// shares, and the next teardown then panics out of a `Drop` — `capture_worker` traces the
+    /// shares, and the next teardown then panics out of a `Drop` — `mxm_drum_shell::capture` traces the
     /// path through `background_thread.rs`. Captures run on a thread this plugin owns and joins,
     /// so nothing is ever left queued against a dead instance.
     fn task_executor(&mut self) -> TaskExecutor<Self> {
@@ -799,7 +613,7 @@ impl Plugin for MxmDrumMachine {
         // closed after teardown is not a special case: a pack asked for before the thread exists
         // waits for it, and one asked for after it has gone is dropped.
         let spawn: editor::Spawn = {
-            let gate = self.export_gate.clone();
+            let gate = self.resample.gate.clone();
             let telemetry = self.telemetry.clone();
             Arc::new(move |task| {
                 let CaptureTask::ExportPack {
@@ -814,7 +628,9 @@ impl Plugin for MxmDrumMachine {
                 // than the button doing nothing.
                 match destination.or_else(pack::root) {
                     Some(root) => gate.request_export(sample_rate, root),
-                    None => telemetry.publish_export(telemetry::Export::NoDestination),
+                    None => telemetry
+                        .signals
+                        .publish_export(mxm_drum_shell::signals::Export::NoDestination),
                 }
             })
         };
@@ -846,30 +662,14 @@ impl Plugin for MxmDrumMachine {
         self.engine.reset();
         self.engine
             .reset_output_destinations(&self.output_destinations());
-        self.asked = false;
-        // **An activation supersedes everything asked before it**: a kit still rendering was made
-        // for the rate and the patch as they were, and `refresh_captures` below installs the
-        // current one itself.
-        self.engagement = self.engagement.wrapping_add(1);
-        self.bank.drain();
-        self.refresh_captures();
-        // Spawned here rather than at construction, so a host's scan — which builds the plugin to
-        // read its parameters and throws it away — never starts a thread. Once only: a second
-        // `activate` (a rate change, say) keeps the thread it already has, because the rate
-        // travels with each request rather than being fixed when the thread starts.
-        if self.worker.is_none() {
-            let worker = capture_worker::CaptureWorker::spawn(
-                &self.export_gate,
-                capture_worker::Inputs {
-                    params: self.params.clone(),
-                    bank: self.bank.clone(),
-                    telemetry: self.telemetry.clone(),
-                },
-            );
-            // Resample stays live and correct without it; the editor says why it never freezes.
-            self.telemetry.set_capture_unavailable(!worker.is_running());
-            self.worker = Some(worker);
-        }
+        // A new engage; the kit captured now when Resample is on, kept when its patch has not
+        // moved; the capture thread spawned the first time (`Resample::activate`).
+        self.resample.activate(
+            &mut self.engine,
+            self.params.resample.value(),
+            &self.telemetry,
+            self.sample_rate,
+        );
         true
     }
 
@@ -877,7 +677,7 @@ impl Plugin for MxmDrumMachine {
         self.engine.reset();
         self.parts = PartState::new();
         // A hit the editor asked for before the reset is pending input, cleared with the rest.
-        let _ = self.telemetry.take_audition();
+        let _ = self.telemetry.signals.take_audition();
         self.engine
             .reset_output_destinations(&self.output_destinations());
     }
@@ -893,14 +693,19 @@ impl Plugin for MxmDrumMachine {
         self.synced_lfo_hz = synced_lfo_rates(&self.params, tempo);
         self.telemetry.tempo.publish(tempo);
         self.engine.set_tempo_bpm(self.tempo_bpm.unwrap_or(120.0));
-        self.service_captures();
+        self.resample.service(
+            &mut self.engine,
+            self.params.resample.value(),
+            &self.telemetry.signals,
+            self.sample_rate,
+        );
         let samples = buffer.samples();
         let output = buffer.as_slice();
         let mut next_event = context.next_event();
         // The slots the editor asked to hear, struck at the buffer's first sample as a note would be;
         // a callback of no frames has no first sample, so it leaves the request for the next.
         let mut audition = if samples > 0 {
-            self.telemetry.take_audition()
+            self.telemetry.signals.take_audition()
         } else {
             0
         };
@@ -1837,9 +1642,10 @@ mod full_layout {
             ));
         };
         let heard = |plugin: &MxmDrumMachine| {
-            let engagement = plugin.telemetry.frozen().expect("frozen");
+            let engagement = plugin.telemetry.signals.frozen().expect("frozen");
             plugin
-                .export_gate
+                .resample
+                .gate
                 .heard_for(engagement)
                 .expect("remembered")
                 .patches[0]
@@ -1847,10 +1653,10 @@ mod full_layout {
         };
         let mut plugin = activated(1, frozen);
         let init = heard(&plugin);
-        let first = plugin.telemetry.frozen();
+        let first = plugin.telemetry.signals.frozen();
         reactivate(&mut plugin);
         assert_ne!(
-            plugin.telemetry.frozen(),
+            plugin.telemetry.signals.frozen(),
             first,
             "the kit is this engage's now"
         );
@@ -1893,7 +1699,7 @@ mod full_layout {
         );
     }
 
-    /// A slot the editor asks to hear (`Telemetry::request_audition`) is struck at the next
+    /// A slot the editor asks to hear (`Signals::request_audition`) is struck at the next
     /// buffer's first sample, and the request is taken: the render after it, asked nothing, is
     /// silent where it was not.
     #[test]
@@ -1901,7 +1707,7 @@ mod full_layout {
         let mut plugin = activated(1, |_| {});
         let quiet = render(&mut plugin, &[]);
         assert!(silent(&quiet.main[0]), "nothing asked, nothing sounds");
-        plugin.telemetry.request_audition(0);
+        plugin.telemetry.signals.request_audition(0);
         // A host's callback of no frames first: it has no sample to strike at, so it leaves the
         // request for the next (model drums' review, round 2).
         let _ = render_frames(&mut plugin, &[], None, 0);
@@ -1911,14 +1717,18 @@ mod full_layout {
             struck.main[0][0] != 0.0 || struck.main[0][1] != 0.0,
             "from its first samples"
         );
-        assert_eq!(plugin.telemetry.take_audition(), 0, "the request was taken");
+        assert_eq!(
+            plugin.telemetry.signals.take_audition(),
+            0,
+            "the request was taken"
+        );
     }
 
     /// A reset clears a hit asked for before it, as it clears every pending event.
     #[test]
     fn a_reset_drops_a_slot_asked_to_be_heard() {
         let mut plugin = activated(1, |_| {});
-        plugin.telemetry.request_audition(0);
+        plugin.telemetry.signals.request_audition(0);
         plugin.reset();
         assert!(
             silent(&render(&mut plugin, &[]).main[0]),
@@ -1938,7 +1748,7 @@ mod full_layout {
         // The capture thread is stopped and joined first, because this test stands in for it: a
         // live worker would answer the same request with a kit of its own, on its own clock,
         // under every assertion below.
-        plugin.worker = None;
+        plugin.resample.worker = None;
         assert!(!plugin.engine.is_frozen(), "starts live");
 
         // SAFETY: exclusive test ownership; no process or GUI thread exists.
@@ -1950,12 +1760,15 @@ mod full_layout {
             !plugin.engine.is_frozen(),
             "still live while the worker renders"
         );
-        assert!(plugin.asked, "and a capture was asked for");
+        assert!(plugin.resample.asked(), "and a capture was asked for");
 
         // Stand in for the worker, which stamps the kit with the engage that asked.
         let patches = capture_patches(&plugin.params);
         let kit = mxm_drum_machine_dsp::capture::capture_kit(&patches, SAMPLE_RATE).expect("a kit");
-        plugin.bank.publish(kit.answering(plugin.engagement));
+        plugin
+            .resample
+            .bank
+            .publish(kit.answering(plugin.resample.engagement));
 
         render(&mut plugin, &[]);
         assert!(plugin.engine.is_frozen(), "the next block installed it");
@@ -1977,10 +1790,10 @@ mod full_layout {
         use nice_plug::params::InternalParamMut;
 
         let mut plugin = activated(1, |_| {});
-        // The capture thread is stopped and joined first: this is about what `service_captures`
+        // The capture thread is stopped and joined first: this is about what `Resample::service`
         // does with a kit it is handed, and a live worker would both eat the request and race
         // the bank with a correct kit of its own.
-        plugin.worker = None;
+        plugin.resample.worker = None;
 
         // SAFETY: exclusive test ownership; no process or GUI thread exists.
         unsafe { plugin.params.resample._internal_set_plain_value(true) };
@@ -1988,6 +1801,7 @@ mod full_layout {
         assert_eq!(
             plugin
                 .telemetry
+                .signals
                 .take_capture_request()
                 .map(|request| request.sample_rate),
             Some(SAMPLE_RATE),
@@ -1998,7 +1812,10 @@ mod full_layout {
         let patches = capture_patches(&plugin.params);
         let wrong = SAMPLE_RATE * 2.0;
         let kit = mxm_drum_machine_dsp::capture::capture_kit(&patches, wrong).expect("a kit");
-        plugin.bank.publish(kit.answering(plugin.engagement));
+        plugin
+            .resample
+            .bank
+            .publish(kit.answering(plugin.resample.engagement));
 
         render(&mut plugin, &[]);
         assert!(
@@ -2008,6 +1825,7 @@ mod full_layout {
         assert_eq!(
             plugin
                 .telemetry
+                .signals
                 .take_capture_request()
                 .map(|request| request.sample_rate),
             Some(SAMPLE_RATE),
@@ -2016,11 +1834,14 @@ mod full_layout {
 
         // Stand in for the worker, which drains before it publishes: `take` refuses a new kit
         // while a retired one is still parked, which is what keeps the handoff a ring.
-        plugin.bank.drain();
+        plugin.resample.bank.drain();
 
         // The right rate is accepted, so the refusal is about the rate and nothing else.
         let kit = mxm_drum_machine_dsp::capture::capture_kit(&patches, SAMPLE_RATE).expect("a kit");
-        plugin.bank.publish(kit.answering(plugin.engagement));
+        plugin
+            .resample
+            .bank
+            .publish(kit.answering(plugin.resample.engagement));
         render(&mut plugin, &[]);
         assert!(plugin.engine.is_frozen(), "a matching kit installs");
     }
@@ -2040,13 +1861,14 @@ mod full_layout {
 
         let mut plugin = activated(1, |_| {});
         // Stopped and joined: this test stands in for it.
-        plugin.worker = None;
+        plugin.resample.worker = None;
 
         // SAFETY: exclusive test ownership; no process or GUI thread exists.
         unsafe { plugin.params.resample._internal_set_plain_value(true) };
         render(&mut plugin, &[]);
         let first = plugin
             .telemetry
+            .signals
             .take_capture_request()
             .expect("the engage asked");
         let old = mxm_drum_machine_dsp::capture::capture_kit(
@@ -2054,7 +1876,10 @@ mod full_layout {
             first.sample_rate,
         )
         .expect("a kit");
-        plugin.bank.publish(old.answering(first.engagement));
+        plugin
+            .resample
+            .bank
+            .publish(old.answering(first.engagement));
 
         // Off, edit, on — before any `process` took the kit.
         // SAFETY: as above.
@@ -2074,18 +1899,22 @@ mod full_layout {
         );
         let second = plugin
             .telemetry
+            .signals
             .take_capture_request()
             .expect("the new engage asked for the edited patch");
         assert_ne!(second.engagement, first.engagement);
 
         // Stand in for the worker, which frees what was retired before it renders.
-        plugin.bank.drain();
+        plugin.resample.bank.drain();
         let new = mxm_drum_machine_dsp::capture::capture_kit(
             &capture_patches(&plugin.params),
             second.sample_rate,
         )
         .expect("a kit");
-        plugin.bank.publish(new.answering(second.engagement));
+        plugin
+            .resample
+            .bank
+            .publish(new.answering(second.engagement));
         render(&mut plugin, &[]);
         assert!(plugin.engine.is_frozen(), "the edited patch's kit installs");
     }
@@ -2120,11 +1949,12 @@ mod full_layout {
 
         let mut plugin = activated(1, |_| {});
         // Stopped and joined: this test stands in for it.
-        plugin.worker = None;
+        plugin.resample.worker = None;
         engaged(&plugin.params);
         render(&mut plugin, &[]);
         let asked = plugin
             .telemetry
+            .signals
             .take_capture_request()
             .expect("the engage asked");
         let old = mxm_drum_machine_dsp::capture::capture_kit(
@@ -2136,16 +1966,19 @@ mod full_layout {
         // The edit lands and the host re-activates at the same rate.
         edit(&plugin.params);
         reactivate(&mut plugin);
-        plugin.worker = None;
+        plugin.resample.worker = None;
         assert!(
             plugin.engine.is_frozen(),
             "activation captured the edited patch"
         );
 
-        plugin.bank.publish(old.answering(asked.engagement));
+        plugin
+            .resample
+            .bank
+            .publish(old.answering(asked.engagement));
         render(&mut plugin, &[]);
         assert_eq!(
-            plugin.telemetry.take_capture_request(),
+            plugin.telemetry.signals.take_capture_request(),
             None,
             "the premise: nothing asks again, so no capture comes to drain the refused kit"
         );
@@ -2155,11 +1988,11 @@ mod full_layout {
             edit(params);
             engaged(params);
         });
-        reference.worker = None;
+        reference.resample.worker = None;
         render(&mut reference, &[]);
         let expected = render(&mut reference, &[36]);
         let mut unedited = activated(1, engaged);
-        unedited.worker = None;
+        unedited.resample.worker = None;
         render(&mut unedited, &[]);
         assert_ne!(
             render(&mut unedited, &[36]).main,
@@ -2190,11 +2023,11 @@ mod full_layout {
             plugin.engine.is_frozen(),
             "activation captured synchronously"
         );
-        // Stopped and joined: this is about what `service_captures` asks for, and a live worker
+        // Stopped and joined: this is about what `Resample::service` asks for, and a live worker
         // consumes requests on its own clock, which would race every assertion below.
-        plugin.worker = None;
+        plugin.resample.worker = None;
         // Clear anything activation left behind, so the sweep's own behaviour is what is measured.
-        let _ = plugin.telemetry.take_capture_request();
+        let _ = plugin.telemetry.signals.take_capture_request();
 
         // Sweep two captured axes the way a host automating them would.
         for step in 0..8 {
@@ -2210,7 +2043,7 @@ mod full_layout {
             }
             render(&mut plugin, &[36]);
             assert_eq!(
-                plugin.telemetry.take_capture_request(),
+                plugin.telemetry.signals.take_capture_request(),
                 None,
                 "step {step} asked for a re-render while frozen"
             );
@@ -2227,6 +2060,7 @@ mod full_layout {
         assert_eq!(
             plugin
                 .telemetry
+                .signals
                 .take_capture_request()
                 .map(|request| request.sample_rate),
             Some(SAMPLE_RATE),
@@ -2244,7 +2078,10 @@ mod full_layout {
         // Activated disengaged, so nothing is captured synchronously and the only route to a kit
         // is the thread.
         let mut plugin = activated(1, |_| {});
-        assert!(plugin.worker.is_some(), "activate spawned the thread");
+        assert!(
+            plugin.resample.worker.is_some(),
+            "activate spawned the thread"
+        );
         assert!(!plugin.engine.is_frozen(), "and starts live");
 
         // SAFETY: exclusive test ownership; no GUI thread exists.
@@ -2263,7 +2100,7 @@ mod full_layout {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert_eq!(
-            plugin.captured,
+            plugin.resample.captured(),
             Some(SAMPLE_RATE),
             "and the installed kit is recorded at the engine's rate"
         );
@@ -2283,11 +2120,14 @@ mod full_layout {
             std::thread::current().id()
         ));
         let plugin = activated(1, |_| {});
-        plugin.export_gate.request_export(SAMPLE_RATE, into.clone());
+        plugin
+            .resample
+            .gate
+            .request_export(SAMPLE_RATE, into.clone());
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         loop {
             // Either it wrote somewhere or it said why; both are reports, neither is a crash.
-            if plugin.telemetry.take_export().is_some() {
+            if plugin.telemetry.signals.take_export().is_some() {
                 break;
             }
             assert!(

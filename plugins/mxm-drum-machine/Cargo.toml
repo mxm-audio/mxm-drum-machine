@@ -25,22 +25,17 @@ mxm-modulation-params.workspace = true
 mxm-part-routing.workspace = true
 egui.workspace = true
 mxm-drum-machine-dsp.workspace = true
-# Writes the sample pack (plan §4.7). The collection's first plugin to ship the encoder: the
-# player already had it and every other consumer takes it as a dev-dependency. No MPL travels
-# with it — symphonia lives only in `mxm-audio-file-decode`, which this plugin does not take.
-mxm-audio-file.workspace = true
-dirs = "=5.0.1"
-# Reads the slot names a state holds before it is restored (`slot_names::filter`). Pinned as the lock
-# already has it, through nice-plug.
-serde_json = "=1.0.145"
-# The Export pack folder chooser (owner, 2026-09-21). Same pin as the two plugins that already
-# ship it; this is the collection's first *folder* pick, and its Linux portal path is unverified
-# from this machine — `AGENTS.md` records that rather than implying it works.
-rfd = "=0.15.4"
+# The slot names, Resample's capture thread and state machine, the sample pack and the editor's
+# Resample, Export and name box, shared with mxm-model-drums (mxm-kit's `crates/mxm-drum-shell`):
+# the pack's encoder, its folder pick and the names' field come with it.
+mxm-drum-shell.workspace = true
 
 [dev-dependencies]
 # The collection's shared headless checks (`crates/mxm-plugin-test`).
 mxm-plugin-test.workspace = true
+# The slot names' field as the test that restores it through the wrapper writes it
+# (`slot_names::tests::through_the_wrapper`). Pinned as the lock has it.
+serde_json = "=1.0.145"
 # The note-name extension's C types, for the test that reads the slot names as a host does
 # (`slot_names::tests::through_the_wrapper`). Pinned as the lock has it, through nice-plug.
 clap-sys = "=0.5.0"

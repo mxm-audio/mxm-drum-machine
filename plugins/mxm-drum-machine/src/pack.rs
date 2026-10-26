@@ -1,108 +1,27 @@
-//! Writing the kit out as a sample pack (plan §4.7, D9).
+//! The drum machine's sample pack: its one-shots, rendered through the reader its frozen kit plays,
+//! and what a recording of it loses. The writer, the manifest, the naming and the never-overwriting
+//! are mxm-kit's `mxm_drum_shell::pack` (plan §4.7, D9; shared since 2026-10-26).
 //!
-//! Sixteen 24-bit WAV one-shots and a manifest, in a flat folder a tracker or a hardware sampler
-//! can import without being told anything. This is the half of Resample that leaves the plugin,
-//! and it lives here rather than in the DSP crate because
-//! [`../../../crates/mxm-drum-machine-dsp/AGENTS.md`](../../../crates/mxm-drum-machine-dsp/AGENTS.md)
-//! keeps `mxm-audio-file` out of that crate's shipped graph.
-//!
-//! # What lands in a file
-//!
-//! A frozen slot is heard as its capture, then the sample-domain Pitch and Decay, then Level,
-//! Mute, Solo, Pan, Master and the Level/Pan routes. **The pack takes that chain up to and
-//! including Pitch and Decay, and stops there.** Those two are the one-shot somebody shaped and
-//! auditioned; everything after them is monitoring balance belonging to whatever plays the pack
-//! next. So every file is at unity gain and centred, a muted slot still exports, and moving a
-//! fader cannot change an exported byte.
-//!
-//! # Never overwriting, on three platforms
-//!
-//! Sixteen files and a manifest can fail halfway, which per-file atomicity does not prevent. The
-//! pack is written into a uniquely named sibling directory and committed by **one directory
-//! rename onto a path that does not exist** — a name already taken simply takes the next one. So
-//! there is nothing to roll back, and the rename means the same thing on Windows, Linux and
-//! macOS, which a rename over an existing directory would not.
+//! A frozen slot is heard as its capture, then its Pitch and Decay, then Level, Mute, Solo, Pan,
+//! Master and the Level/Pan routes; the pack takes the chain up to Pitch and Decay and stops, so a
+//! file is at unity gain and centred and moving a fader cannot change an exported byte.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use mxm_audio_file::{Bits, Target};
 use mxm_drum_machine_dsp::capture::{CaptureVoice, KitCapture, Retrigger};
 use mxm_drum_machine_dsp::engine::SlotPatch;
 use mxm_drum_machine_dsp::{SLOT_COUNT, model, note_for_slot};
+use mxm_drum_shell::pack::{OneShots, render_one_shot};
 
-/// The folder packs are written into, under `data_local`.
-///
-/// Collection content, so the platform's local data directory rather than the roaming config
-/// one — the same rule that puts `mxm/impulses` there, and for the same reason: a pack is audio
-/// and audio should not follow a Windows profile around.
-#[must_use]
-pub fn root_under(data_local: Option<PathBuf>) -> Option<PathBuf> {
-    data_local.map(|dir| dir.join("mxm").join("sample-packs"))
-}
+pub use mxm_drum_shell::pack::{PackError, Written, root, slug};
 
-/// This user's sample-pack folder; `None` where the platform has no local data directory.
-///
-/// The root is resolved once and injected, exactly as the preset library's and the impulses
-/// folder's are, so a test never writes into the folder of whoever ran it.
-#[must_use]
-pub fn root() -> Option<PathBuf> {
-    root_under(dirs::data_local_dir())
-}
-
-/// Why a pack could not be written.
-#[derive(Debug)]
-pub enum PackError {
-    /// The platform has no local data directory, so there is nowhere to put a pack.
-    NoDestination,
-    /// Every slot was `Off`, so there is nothing to export.
-    Empty,
-    /// Encoding refused the audio, which `mxm-audio-file` does for a non-finite sample.
-    Encode(String),
-    /// The file system refused.
-    Io(std::io::Error),
-    /// The plugin is closing, so the export stopped, leaving nothing behind.
-    Cancelled,
-    /// A one-shot's buffer could not be had: a slot read very slowly is long.
-    Allocation { slot: usize, frames: usize },
-}
-
-impl std::fmt::Display for PackError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NoDestination => write!(f, "this platform has no local data folder to write to"),
-            Self::Empty => write!(f, "every slot is Off, so there is nothing to export"),
-            Self::Encode(why) => write!(f, "the audio could not be encoded: {why}"),
-            Self::Io(error) => write!(f, "{error}"),
-            Self::Cancelled => write!(f, "the export stopped, as the plugin closed"),
-            Self::Allocation { slot, frames } => write!(
-                f,
-                "slot {}'s one-shot needs {frames} samples, more memory than there is",
-                slot + 1
-            ),
-        }
-    }
-}
-
-impl From<std::io::Error> for PackError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-/// What a finished pack contains, for the editor to report.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Written {
-    /// Where the pack landed.
-    pub directory: PathBuf,
-    /// How many one-shots it holds.
-    pub files: usize,
-    /// How many samples clipped, summed over the pack.
-    ///
-    /// Reported rather than prevented: `mxm-audio-file` counts them and a silently clipped pack
-    /// is worse than one that says so. Nothing is normalised — §4.1 forbids a hidden limiter in
-    /// the audio path and a file is no different.
-    pub clipped: usize,
-}
+/// What a recording of the drum machine loses: the manifest's last paragraph.
+const LOSSES: &str = "Each one is a single hit frozen at one moment:\n\
+     the free-running metal and noise sources a real circuit reads are fixed at the phase they \
+     had when it was captured,\n\
+     and velocity scales the file rather than re-entering the circuit. Hats and cymbals will \
+     repeat exactly rather than varying.\n\
+     \nThe models are schematic-derived and their fidelity is unverified against hardware.\n";
 
 /// Renders one slot's exported one-shot: the capture, with its Pitch and Decay applied.
 ///
@@ -119,16 +38,12 @@ pub fn one_shot(
     one_shot_until(capture, slot, patch, sample_rate, &|| false).unwrap_or_default()
 }
 
-/// How often a one-shot's render asks whether to stop: pitched down, one reads its capture out up
-/// to sixteen times as long.
-const CANCEL_CHECK_FRAMES: usize = 4_096;
-
-/// [`one_shot`], stopping if `cancelled` says to, asked every [`CANCEL_CHECK_FRAMES`].
+/// [`one_shot`], stopping if `cancelled` says to (`mxm_drum_shell::pack::render_one_shot`).
 ///
 /// # Errors
 ///
 /// [`PackError::Cancelled`] when it stopped, [`PackError::Allocation`] when its buffer cannot be
-/// had: reserved fallibly, as an infallible allocation that fails aborts the host.
+/// had.
 pub fn one_shot_until(
     capture: &KitCapture,
     slot: usize,
@@ -152,60 +67,54 @@ pub fn one_shot_until(
     // rate is the reader's own: a model without Tune plays at its captured rate.
     let rate = 2.0_f32.powf(slot_capture.playback_semitones(patch.pitch_semitones) / 12.0);
     let bound = ((slot_capture.len() as f32 / rate.max(0.01)).ceil() as usize) + 1;
-    let mut out = Vec::new();
-    out.try_reserve_exact(bound)
-        .map_err(|_| PackError::Allocation {
+    render_one_shot(slot, bound, cancelled, || {
+        voice
+            .is_active()
+            .then(|| voice.process(slot_capture, patch.pitch_semitones))
+    })
+}
+
+/// A captured kit as a pack reads it, each slot played by its patch's Pitch and Decay.
+struct Shots<'a> {
+    capture: &'a KitCapture,
+    patches: &'a [SlotPatch; SLOT_COUNT],
+}
+
+impl OneShots for Shots<'_> {
+    fn sample_rate(&self) -> f32 {
+        self.capture.sample_rate()
+    }
+    fn is_empty(&self, slot: usize) -> bool {
+        self.capture.slot(slot).is_empty()
+    }
+    fn one_shot_until(
+        &self,
+        slot: usize,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<f32>, PackError> {
+        one_shot_until(
+            self.capture,
             slot,
-            frames: bound,
-        })?;
-    while voice.is_active() && out.len() < bound {
-        if out.len() % CANCEL_CHECK_FRAMES == 0 && cancelled() {
-            return Err(PackError::Cancelled);
-        }
-        out.push(voice.process(slot_capture, patch.pitch_semitones));
+            &self.patches[slot],
+            self.capture.sample_rate(),
+            cancelled,
+        )
     }
-    Ok(out)
-}
-
-/// A file-system-safe name for a model's public label.
-///
-/// The label is already the product name, and `mxm-drum-machine-dsp` has a test forbidding maker
-/// and model designations in one — so the pack inherits that rule rather than restating it.
-#[must_use]
-pub fn slug(label: &str) -> String {
-    let mut out = String::with_capacity(label.len());
-    let mut last_dash = true;
-    for ch in label.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.extend(ch.to_lowercase());
-            last_dash = false;
-        } else if !last_dash {
-            out.push('-');
-            last_dash = true;
-        }
+    fn label(&self, slot: usize) -> &str {
+        model::label(self.patches[slot].model)
     }
-    while out.ends_with('-') {
-        out.pop();
+    fn note(&self, slot: usize) -> Option<u8> {
+        note_for_slot(slot)
     }
-    // Windows reserves these for its devices, in any case, so no folder or file may be called one;
-    // a pack is named the same on all three platforms, so the name moves aside everywhere.
-    let device = matches!(out.as_str(), "con" | "prn" | "aux" | "nul")
-        || (out.len() == 4
-            && (out.starts_with("com") || out.starts_with("lpt"))
-            && out.as_bytes()[3].is_ascii_digit());
-    if device {
-        out.push_str("-kit");
+    fn product(&self) -> &str {
+        "mxm-drum-machine"
     }
-    if out.is_empty() {
-        "slot".to_owned()
-    } else {
-        out
+    fn losses(&self) -> &str {
+        LOSSES
     }
 }
 
-/// The manifest that ships beside the audio.
-///
-/// Plain text, because the thing reading it next is a person deciding which file is the kick.
+/// The manifest that ships beside the audio (`mxm_drum_shell::pack::manifest`).
 #[must_use]
 pub fn manifest(
     kit: &str,
@@ -213,65 +122,28 @@ pub fn manifest(
     patches: &[SlotPatch; SLOT_COUNT],
     names: &[Option<String>; SLOT_COUNT],
 ) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("{kit}\n"));
-    out.push_str("Exported from mxm-drum-machine.\n\n");
-    out.push_str(&format!(
-        "Sample rate: {} Hz, 24-bit WAV\n\n",
-        capture.sample_rate() as u32
-    ));
-    for slot in 0..SLOT_COUNT {
-        let Some(name) = names[slot].as_ref() else {
-            continue;
-        };
-        let label = model::label(patches[slot].model);
-        // Every slot in the Kit range has a note; the fallback is only so a future slot without
-        // one cannot break the manifest.
-        let note = note_for_slot(slot).map_or_else(|| "-".to_owned(), |note| note.to_string());
-        out.push_str(&format!(
-            "{name}  slot {:02}  note {note}  {label}\n",
-            slot + 1
-        ));
-    }
-    out.push_str(
-        "\nThese are recordings of the instrument, not the instrument. Each one is a single hit \
-         frozen at one moment:\n\
-         the free-running metal and noise sources a real circuit reads are fixed at the phase \
-         they had when it was captured,\n\
-         and velocity scales the file rather than re-entering the circuit. Hats and cymbals will \
-         repeat exactly rather than varying.\n",
-    );
-    out.push_str(
-        "\nThe models are schematic-derived and their fidelity is unverified against hardware.\n",
-    );
-    out
+    mxm_drum_shell::pack::manifest(kit, &Shots { capture, patches }, names)
 }
 
-/// Writes a pack, and returns where it landed.
-///
-/// **Never call this from an audio thread**: it renders, allocates and touches the file system.
+/// Writes `capture` as a pack, each slot played by `patches` (`mxm_drum_shell::pack::write`).
 ///
 /// # Errors
 ///
-/// [`PackError`] when there is no destination, nothing to export, the audio cannot be encoded, or
-/// the file system refuses. A failure leaves no partial pack at the destination, because the
-/// staging directory is only renamed into place once every file is written.
+/// As the shell's.
 pub fn write(
     root: &Path,
     kit: &str,
     capture: &KitCapture,
     patches: &[SlotPatch; SLOT_COUNT],
 ) -> Result<Written, PackError> {
-    write_until(root, kit, capture, patches, &|| false)
+    mxm_drum_shell::pack::write(root, kit, &Shots { capture, patches })
 }
 
-/// [`write`], stopping between one file and the next if `cancelled` says to, the staging removed:
-/// the form for the capture thread, which the plugin's teardown joins, so a pack to slow or
-/// removable storage cannot hold a closing host for its whole length.
+/// [`write`], stopping if `cancelled` says to (`mxm_drum_shell::pack::write_until`).
 ///
 /// # Errors
 ///
-/// As [`write`], plus [`PackError::Cancelled`].
+/// As the shell's.
 pub fn write_until(
     root: &Path,
     kit: &str,
@@ -279,143 +151,7 @@ pub fn write_until(
     patches: &[SlotPatch; SLOT_COUNT],
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Written, PackError> {
-    let rate = capture.sample_rate() as u32;
-    if (0..SLOT_COUNT).all(|slot| capture.slot(slot).is_empty()) {
-        return Err(PackError::Empty);
-    }
-
-    let staging = claim_staging(root, kit)?;
-
-    // **One slot at a time**: rendered, encoded and written before the next is rendered, as a
-    // one-shot read slowly can be long, and sixteen held at once hundreds of megabytes.
-    let mut clipped = 0;
-    let mut names: [Option<String>; SLOT_COUNT] = std::array::from_fn(|_| None);
-    let written = (|| -> Result<usize, PackError> {
-        let mut files = 0;
-        for (slot, patch) in patches.iter().enumerate() {
-            let samples = one_shot_until(capture, slot, patch, capture.sample_rate(), cancelled)?;
-            if samples.is_empty() {
-                continue;
-            }
-            let (bytes, encoded) =
-                mxm_audio_file::encode(&samples, 1, rate, Target::Wav(Bits::TwentyFour))
-                    .map_err(|error| PackError::Encode(format!("{error:?}")))?;
-            drop(samples);
-            let name = format!("{:02}-{}.wav", slot + 1, slug(model::label(patch.model)));
-            write_file_until(&staging.join(&name), &bytes, cancelled)?;
-            clipped += encoded.clipped;
-            names[slot] = Some(name);
-            files += 1;
-        }
-        let text = manifest(kit, capture, patches, &names);
-        std::fs::write(staging.join("kit.txt"), text)?;
-        Ok(files)
-    })();
-
-    let files = match written {
-        Ok(files) => files,
-        Err(error) => {
-            // Nothing reached the destination, so there is nothing to roll back — only the
-            // staging directory to clean up.
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(error);
-        }
-    };
-
-    if cancelled() {
-        let _ = std::fs::remove_dir_all(&staging);
-        return Err(PackError::Cancelled);
-    }
-    match commit(root, kit, &staging) {
-        Ok(directory) => Ok(Written {
-            directory,
-            files,
-            clipped,
-        }),
-        Err(error) => {
-            let _ = std::fs::remove_dir_all(&staging);
-            Err(error)
-        }
-    }
-}
-
-/// How much of a file is written between two looks at whether to stop.
-const WRITE_CHUNK_BYTES: usize = 1 << 20;
-
-/// Writes `bytes` as the file at `path` a mebibyte at a time, stopping if `cancelled` says to: a
-/// pack's destination is often removable media, slow to write, and the plugin's teardown waits on
-/// the capture thread. The file is in the staging directory, which a failure removes whole.
-fn write_file_until(
-    path: &Path,
-    bytes: &[u8],
-    cancelled: &dyn Fn() -> bool,
-) -> Result<(), PackError> {
-    use std::io::Write;
-    let mut file = std::fs::File::create(path)?;
-    for chunk in bytes.chunks(WRITE_CHUNK_BYTES) {
-        if cancelled() {
-            return Err(PackError::Cancelled);
-        }
-        file.write_all(chunk)?;
-    }
-    Ok(())
-}
-
-/// Makes this write's own staging directory beside the packs, named so no other write's can be: its
-/// process, its thread and a count, claimed by `create_dir`, which refuses one that exists. Two
-/// instances exporting the same kit at once each write their own.
-fn claim_staging(root: &Path, kit: &str) -> Result<PathBuf, PackError> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static WRITES: AtomicU64 = AtomicU64::new(0);
-    std::fs::create_dir_all(root)?;
-    let base = slug(kit);
-    for _ in 0..1_000 {
-        let staging = root.join(format!(
-            ".{base}.{}-{:?}-{}.incomplete",
-            std::process::id(),
-            std::thread::current().id(),
-            WRITES.fetch_add(1, Ordering::Relaxed)
-        ));
-        match std::fs::create_dir(&staging) {
-            Ok(()) => return Ok(staging),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(PackError::Io(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "no staging directory could be claimed",
-    )))
-}
-
-/// Renames a finished staging directory to the first free pack name: the kit's, then `-1`, `-2`, …
-/// **An existing pack is never overwritten**, and the name is taken by the rename itself, which
-/// refuses a directory that exists (Windows) or holds anything (Linux, macOS), so a pack another
-/// write committed first only moves this one to the next name. One rename within one file system,
-/// so a destination holds a whole pack or nothing, on all three.
-fn commit(root: &Path, kit: &str, staging: &Path) -> Result<PathBuf, PackError> {
-    let base = slug(kit);
-    for attempt in 0..1_000 {
-        let name = if attempt == 0 {
-            base.clone()
-        } else {
-            format!("{base}-{attempt}")
-        };
-        let directory = root.join(&name);
-        if directory.exists() {
-            continue;
-        }
-        match std::fs::rename(staging, &directory) {
-            Ok(()) => return Ok(directory),
-            // Taken between the look and the rename: the next name.
-            Err(_) if directory.exists() => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(PackError::Io(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "a thousand packs already share this name",
-    )))
+    mxm_drum_shell::pack::write_until(root, kit, &Shots { capture, patches }, cancelled)
 }
 
 #[cfg(test)]
@@ -423,6 +159,7 @@ pub(crate) mod tests {
     use super::*;
     use mxm_drum_machine_dsp::capture::capture_kit;
     use mxm_drum_machine_dsp::model::ModelId;
+    use std::path::PathBuf;
 
     fn patches() -> [SlotPatch; SLOT_COUNT] {
         let mut patches = [SlotPatch::default(); SLOT_COUNT];
@@ -481,41 +218,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_existing_pack_is_never_overwritten() {
-        let root = temp();
-        let patches = patches();
-        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
-        let first = write(&root, "Test Kit", &kit, &patches).expect("a pack");
-        let second = write(&root, "Test Kit", &kit, &patches).expect("a second pack");
-        assert_ne!(first.directory, second.directory, "the name was taken");
-        assert!(first.directory.exists(), "and the first is untouched");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn nothing_partial_is_left_at_the_destination() {
-        // The commit is one rename, so a destination either has a whole pack or nothing. The
-        // staging directory is the only thing a failure can leave, and it is not the pack.
-        let root = temp();
-        let patches = patches();
-        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
-        let written = write(&root, "Test Kit", &kit, &patches).expect("a pack");
-        let leftovers: Vec<_> = std::fs::read_dir(&root)
-            .expect("the root")
-            .filter_map(|entry| {
-                let name = entry.ok()?.file_name().to_string_lossy().into_owned();
-                name.contains("incomplete").then_some(name)
-            })
-            .collect();
-        assert!(
-            leftovers.is_empty(),
-            "staging was cleaned up: {leftovers:?}"
-        );
-        assert!(written.directory.join("kit.txt").exists());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
     fn the_mix_cannot_change_an_exported_byte() {
         // The pack stops before Level, Pan, Mute and Solo, so moving them must leave the files
         // identical — that is what makes a pack the one-shot rather than a monitoring balance.
@@ -555,50 +257,6 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Two writes of one kit at once each claim their own staging and commit a whole pack of their
-    /// own: neither mixes into the other, and nothing is left staged (model drums' review,
-    /// 2026-10-26).
-    #[test]
-    fn two_exports_at_once_write_two_whole_packs() {
-        let root = scratch("together");
-        let patches = patches();
-        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
-        let written: Vec<Written> = std::thread::scope(|scope| {
-            let writers: Vec<_> = (0..2)
-                .map(|_| {
-                    let (root, kit) = (&root, &kit);
-                    scope.spawn(move || write(root, "Same Kit", kit, &patches).expect("a pack"))
-                })
-                .collect();
-            writers
-                .into_iter()
-                .map(|w| w.join().expect("joins"))
-                .collect()
-        });
-        assert_ne!(written[0].directory, written[1].directory);
-        for pack in &written {
-            let files = std::fs::read_dir(&pack.directory)
-                .expect("the pack")
-                .count();
-            assert_eq!(
-                files, 3,
-                "two one-shots and the manifest in {:?}",
-                pack.directory
-            );
-        }
-        let staged = std::fs::read_dir(&root)
-            .expect("the root")
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .is_ok_and(|e| e.file_name().to_string_lossy().contains("incomplete"))
-            })
-            .count();
-        assert_eq!(staged, 0, "nothing left staged");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// A one-shot's render asked to stop, stops.
     #[test]
     fn a_cancelled_one_shot_stops() {
         let patches = patches();
@@ -608,77 +266,6 @@ pub(crate) mod tests {
             Err(PackError::Cancelled)
         ));
         assert!(!one_shot(&kit, 0, &patches[0], 48_000.0).is_empty());
-    }
-
-    /// A file is written a mebibyte at a time, the cancel asked before each: asked to stop after
-    /// the first, it stops there, one mebibyte on the disk.
-    #[test]
-    fn a_file_stops_between_its_mebibytes() {
-        let root = scratch("chunks");
-        let path = root.join("three.bin");
-        let bytes = vec![7_u8; 3 * WRITE_CHUNK_BYTES];
-        let asked = std::cell::Cell::new(0);
-        let cancelled = || {
-            asked.set(asked.get() + 1);
-            asked.get() > 1
-        };
-        assert!(matches!(
-            write_file_until(&path, &bytes, &cancelled),
-            Err(PackError::Cancelled)
-        ));
-        assert_eq!(
-            asked.get(),
-            2,
-            "asked before the first mebibyte and the second"
-        );
-        let written = std::fs::metadata(&path).expect("the file").len();
-        assert_eq!(
-            written, WRITE_CHUNK_BYTES as u64,
-            "one mebibyte, then it stopped"
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// A write the teardown cancels part-way, one file staged, leaves nothing: no pack, nothing
-    /// staged.
-    #[test]
-    fn a_cancelled_write_leaves_nothing_behind() {
-        let root = scratch("cancelled");
-        let patches = patches();
-        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
-        // Cancelled once a file is staged: as its bytes are being written, part-way through.
-        let staged = || {
-            std::fs::read_dir(&root)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .any(|entry| {
-                    std::fs::read_dir(entry.path()).is_ok_and(|mut files| files.next().is_some())
-                })
-        };
-        let cancelled = || staged();
-        assert!(matches!(
-            write_until(&root, "Kit", &kit, &patches, &cancelled),
-            Err(PackError::Cancelled)
-        ));
-        assert_eq!(
-            std::fs::read_dir(&root).expect("the root").count(),
-            0,
-            "nothing left"
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn an_empty_kit_is_refused_rather_than_written() {
-        let root = temp();
-        let patches = [SlotPatch::default(); SLOT_COUNT];
-        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
-        assert!(matches!(
-            write(&root, "Empty", &kit, &patches),
-            Err(PackError::Empty)
-        ));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -696,28 +283,5 @@ pub(crate) mod tests {
             "the pack says what it is"
         );
         assert!(text.contains("fidelity is unverified"));
-    }
-
-    #[test]
-    fn a_slug_is_file_system_safe() {
-        assert_eq!(slug("Deep bridge kick"), "deep-bridge-kick");
-        assert_eq!(slug("Six-bit crash"), "six-bit-crash");
-        assert_eq!(slug("  ...  "), "slot");
-        // Windows' device names, in any case, move aside; a name that only starts with one does not.
-        assert_eq!(slug("CON"), "con-kit");
-        assert_eq!(slug("Aux"), "aux-kit");
-        assert_eq!(slug("lpt9"), "lpt9-kit");
-        assert_eq!(slug("Console"), "console");
-        assert_eq!(slug("Early 2L"), "early-2l");
-    }
-
-    #[test]
-    fn the_folder_is_mxm_sample_packs_under_the_local_data_directory() {
-        let base = PathBuf::from("data-local");
-        assert_eq!(
-            root_under(Some(base.clone())),
-            Some(base.join("mxm").join("sample-packs"))
-        );
-        assert_eq!(root_under(None), None);
     }
 }
