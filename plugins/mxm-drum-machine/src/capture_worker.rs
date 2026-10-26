@@ -33,6 +33,9 @@
 
 use std::sync::{Arc, Condvar, Mutex};
 
+use mxm_drum_machine_dsp::SLOT_COUNT;
+use mxm_drum_machine_dsp::engine::SlotPatch;
+
 use crate::capture_bank::CaptureBank;
 use crate::telemetry::{CaptureRequest, Export, Telemetry};
 
@@ -66,12 +69,47 @@ struct Pending {
     export: Option<(f32, std::path::PathBuf)>,
 }
 
+/// What a kit was captured from: its patches, and the kit's name, which its pack takes.
+#[derive(Debug, Clone)]
+pub struct Heard {
+    /// Every slot's patch, as `capture_patches` read it.
+    pub patches: [SlotPatch; SLOT_COUNT],
+    /// The kit's name then (`kit_name`).
+    pub name: String,
+}
+
 struct Shared {
     pending: Mutex<Pending>,
     wake: Condvar,
+    /// What the last two kits were captured from, with the engage each answered
+    /// (`Gate::remember`): Export renders and names the one heard, not the parameters or the kit
+    /// loaded since (one capture per engage), and an activation keeps a kit whose patch has not
+    /// moved. Two, as a kit for a new engage can be made while the old one still plays.
+    heard: Mutex<[Option<(u32, Heard)>; 2]>,
 }
 
 impl Shared {
+    /// Remembers what the kit answering `engagement` was captured from.
+    fn remember(&self, engagement: u32, captured: Heard) {
+        let mut heard = self
+            .heard
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        heard[1] = heard[0].take();
+        heard[0] = Some((engagement, captured));
+    }
+
+    /// What the kit answering `engagement` was captured from, if it is remembered.
+    fn heard_for(&self, engagement: u32) -> Option<Heard> {
+        self.heard
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .flatten()
+            .find(|(e, _)| *e == engagement)
+            .map(|(_, heard)| heard.clone())
+    }
+
     /// Ends the worker loop and wakes it so it notices.
     fn stop(&self) {
         self.pending
@@ -107,6 +145,7 @@ impl Default for Gate {
                 export: None,
             }),
             wake: Condvar::new(),
+            heard: Mutex::new([None, None]),
         }))
     }
 }
@@ -123,6 +162,18 @@ impl Gate {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .export = Some((sample_rate, destination));
         self.0.wake.notify_all();
+    }
+
+    /// Remembers what the kit answering `engagement` was captured from: the capture thread's, and
+    /// `activate`'s. **Never the audio thread** (it locks and allocates).
+    pub fn remember(&self, engagement: u32, captured: Heard) {
+        self.0.remember(engagement, captured);
+    }
+
+    /// What the kit answering `engagement` was captured from, if it is remembered.
+    #[must_use]
+    pub fn heard_for(&self, engagement: u32) -> Option<Heard> {
+        self.0.heard_for(engagement)
     }
 
     /// Wakes the worker now rather than at the next poll. **Control thread.**
@@ -239,6 +290,7 @@ fn capture(shared: &Shared, inputs: &Inputs, request: CaptureRequest) {
     // kit at all — it refuses while a retired one is still parked.
     inputs.bank.drain();
     let patches = crate::capture_patches(&inputs.params);
+    let name = crate::kit_name(&inputs.params);
     let Ok(mut progress) =
         mxm_drum_machine_dsp::capture::KitCaptureInProgress::begin(&patches, request.sample_rate)
     else {
@@ -262,10 +314,10 @@ fn capture(shared: &Shared, inputs: &Inputs, request: CaptureRequest) {
         return;
     }
     // Stamped with the engage that asked, which is how `process` knows it is still the one to
-    // install.
-    inputs
-        .bank
-        .publish(progress.finish().answering(request.engagement));
+    // install; its patches remembered first, so an Export the moment it installs finds them.
+    let kit = progress.finish().answering(request.engagement);
+    shared.remember(request.engagement, Heard { patches, name });
+    inputs.bank.publish(kit);
     inputs.bank.drain();
 }
 
@@ -274,13 +326,31 @@ fn capture(shared: &Shared, inputs: &Inputs, request: CaptureRequest) {
 /// Abandoned if the plugin goes away mid-render, so closing a project does not wait on a pack —
 /// and abandoned *before* the first file is written, so it never leaves half a pack behind.
 fn export(shared: &Shared, inputs: &Inputs, sample_rate: f32, root: &std::path::Path) {
-    let patches = crate::capture_patches(&inputs.params);
+    let current = crate::capture_patches(&inputs.params);
+    // **The kit heard**: frozen, the patches its kit was captured from (an edit since renders
+    // nothing, so a pack of the parameters would not be what plays), at the pack's rate; the
+    // playback controls (Tune, Decay, Soft hits) as set now, as they are live.
+    let heard = inputs
+        .telemetry
+        .frozen()
+        .and_then(|engagement| shared.heard_for(engagement));
+    let (captured, patches, name) = match heard {
+        Some(heard) => {
+            let mut patches = heard.patches;
+            for (patch, now) in patches.iter_mut().zip(&current) {
+                patch.pitch_semitones = now.pitch_semitones;
+                patch.decay = now.decay;
+                patch.dynamics = now.dynamics;
+            }
+            (heard.patches, patches, heard.name)
+        }
+        None => (current, current, crate::kit_name(&inputs.params)),
+    };
     let stop = || stopping(shared);
-    let written = mxm_drum_machine_dsp::capture::capture_kit_until(&patches, sample_rate, &stop)
+    let written = mxm_drum_machine_dsp::capture::capture_kit_until(&captured, sample_rate, &stop)
         .map_err(|error| format!("{error:?}"))
         .and_then(|kit| {
-            crate::pack::write(root, &crate::kit_name(&inputs.params), &kit, &patches)
-                .map_err(|error| error.to_string())
+            crate::pack::write(root, &name, &kit, &patches).map_err(|error| error.to_string())
         });
     inputs.telemetry.publish_export(match written {
         Ok(written) => Export::Written {
@@ -408,6 +478,98 @@ mod tests {
         );
     }
 
+    /// The one pack under `root`: its name, and every file in it by name.
+    fn pack_files(
+        root: &std::path::Path,
+    ) -> (std::ffi::OsString, Vec<(std::ffi::OsString, Vec<u8>)>) {
+        let pack = std::fs::read_dir(root)
+            .expect("the root")
+            .map(|entry| entry.expect("an entry").path())
+            .find(|path| path.is_dir())
+            .expect("a pack");
+        let mut files: Vec<_> = std::fs::read_dir(&pack)
+            .expect("the pack")
+            .map(|entry| {
+                let path = entry.expect("an entry").path();
+                (
+                    path.file_name().expect("a name").to_owned(),
+                    std::fs::read(&path).expect("a file"),
+                )
+            })
+            .collect();
+        files.sort();
+        (pack.file_name().expect("a name").to_owned(), files)
+    }
+
+    /// Says `name` is the kit loaded, as a kit load does.
+    fn load_kit_named(params: &crate::params::MxmDrumMachineParams, name: &str) {
+        params
+            .preset
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .loaded = Some(mxm_preset::LoadedPreset {
+            name: name.to_owned(),
+            origin: mxm_preset::Origin::Factory,
+        });
+    }
+
+    /// **Export writes the kit heard, under its name** (model drums' review, 2026-10-26): frozen,
+    /// an edit renders nothing and a kit loaded since is not what plays, so the pack is the patches
+    /// the playing kit was captured from, named for it; with nothing frozen, the parameters and the
+    /// kit loaded.
+    #[test]
+    fn an_export_while_frozen_writes_the_kit_heard_not_an_edit_since() {
+        use nice_plug::params::InternalParamMut;
+        let inputs = inputs();
+        for slot in &inputs.params.slots[1..] {
+            // SAFETY: exclusive test ownership; no process or GUI thread exists.
+            unsafe { slot.model._internal_set_plain_value(0) };
+        }
+        let gate = Gate::default();
+        load_kit_named(&inputs.params, "Kit A");
+        let heard = Heard {
+            patches: crate::capture_patches(&inputs.params),
+            name: crate::kit_name(&inputs.params),
+        };
+        gate.remember(5, heard.clone());
+        inputs.telemetry.set_frozen(Some(5));
+        // Kit B loaded while frozen, and an edit: slot 1's Tone, which the capture bakes in.
+        load_kit_named(&inputs.params, "Kit B");
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
+        unsafe {
+            inputs.params.slots[0]
+                .controls
+                .get(crate::params::control::TONE)
+                ._internal_set_plain_value(0.9)
+        };
+
+        let frozen = crate::pack::tests::scratch("heard");
+        export(&gate.0, &inputs, 48_000.0, &frozen);
+        let reference = crate::pack::tests::scratch("heard-reference");
+        let kit =
+            mxm_drum_machine_dsp::capture::capture_kit(&heard.patches, 48_000.0).expect("a kit");
+        crate::pack::write(&reference, &heard.name, &kit, &heard.patches).expect("a pack");
+        assert_eq!(
+            pack_files(&frozen),
+            pack_files(&reference),
+            "the pack is the kit heard, under its name"
+        );
+
+        inputs.telemetry.set_frozen(None);
+        let live = crate::pack::tests::scratch("heard-live");
+        export(&gate.0, &inputs, 48_000.0, &live);
+        let ((live_name, live_files), (heard_name, heard_files)) =
+            (pack_files(&live), pack_files(&reference));
+        assert_ne!(
+            live_name, heard_name,
+            "with nothing frozen, the kit loaded names the pack"
+        );
+        assert_ne!(live_files, heard_files, "and its edit is in it");
+        for root in [frozen, reference, live] {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
     #[test]
     fn the_gate_works_on_both_sides_of_the_threads_life() {
         // An editor can be opened before `activate` spawns the thread and closed after teardown
@@ -417,12 +579,8 @@ mod tests {
         let inputs = inputs();
         let telemetry = Arc::clone(&inputs.telemetry);
 
-        // Into a temporary directory, never the real sample-pack folder.
-        let into = std::env::temp_dir().join(format!(
-            "mxm-drum-machine-gate-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
+        // Into the build's own folder, never the real sample-pack folder and never on C:.
+        let into = crate::pack::tests::scratch("gate");
 
         // Before the thread exists.
         gate.request_export(48_000.0, into.clone());

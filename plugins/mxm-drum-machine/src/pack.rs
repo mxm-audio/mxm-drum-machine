@@ -229,8 +229,7 @@ pub fn write(
         return Err(PackError::Empty);
     }
 
-    let (directory, staging) = destination(root, kit)?;
-    std::fs::create_dir_all(&staging)?;
+    let staging = claim_staging(root, kit)?;
 
     let mut clipped = 0;
     let mut names: [Option<String>; SLOT_COUNT] = std::array::from_fn(|_| None);
@@ -262,19 +261,52 @@ pub fn write(
         }
     };
 
-    std::fs::rename(&staging, &directory)?;
-    Ok(Written {
-        directory,
-        files,
-        clipped,
-    })
+    match commit(root, kit, &staging) {
+        Ok(directory) => Ok(Written {
+            directory,
+            files,
+            clipped,
+        }),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            Err(error)
+        }
+    }
 }
 
-/// Picks a free pack name and the staging directory that becomes it.
-///
-/// An existing pack is never overwritten: a taken name takes the next number. The staging
-/// directory is a sibling, so the commit is one rename within a single file system.
-fn destination(root: &Path, kit: &str) -> Result<(PathBuf, PathBuf), PackError> {
+/// Makes this write's own staging directory beside the packs, named so no other write's can be: its
+/// process, its thread and a count, claimed by `create_dir`, which refuses one that exists. Two
+/// instances exporting the same kit at once each write their own.
+fn claim_staging(root: &Path, kit: &str) -> Result<PathBuf, PackError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    std::fs::create_dir_all(root)?;
+    let base = slug(kit);
+    for _ in 0..1_000 {
+        let staging = root.join(format!(
+            ".{base}.{}-{:?}-{}.incomplete",
+            std::process::id(),
+            std::thread::current().id(),
+            WRITES.fetch_add(1, Ordering::Relaxed)
+        ));
+        match std::fs::create_dir(&staging) {
+            Ok(()) => return Ok(staging),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(PackError::Io(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no staging directory could be claimed",
+    )))
+}
+
+/// Renames a finished staging directory to the first free pack name: the kit's, then `-1`, `-2`, …
+/// **An existing pack is never overwritten**, and the name is taken by the rename itself, which
+/// refuses a directory that exists (Windows) or holds anything (Linux, macOS), so a pack another
+/// write committed first only moves this one to the next name. One rename within one file system,
+/// so a destination holds a whole pack or nothing, on all three.
+fn commit(root: &Path, kit: &str, staging: &Path) -> Result<PathBuf, PackError> {
     let base = slug(kit);
     for attempt in 0..1_000 {
         let name = if attempt == 0 {
@@ -286,11 +318,12 @@ fn destination(root: &Path, kit: &str) -> Result<(PathBuf, PathBuf), PackError> 
         if directory.exists() {
             continue;
         }
-        let staging = root.join(format!(".{name}.incomplete"));
-        if staging.exists() {
-            continue;
+        match std::fs::rename(staging, &directory) {
+            Ok(()) => return Ok(directory),
+            // Taken between the look and the rename: the next name.
+            Err(_) if directory.exists() => {}
+            Err(error) => return Err(error.into()),
         }
-        return Ok((directory, staging));
     }
     Err(PackError::Io(std::io::Error::new(
         std::io::ErrorKind::AlreadyExists,
@@ -299,7 +332,7 @@ fn destination(root: &Path, kit: &str) -> Result<(PathBuf, PathBuf), PackError> 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use mxm_drum_machine_dsp::capture::capture_kit;
     use mxm_drum_machine_dsp::model::ModelId;
@@ -311,15 +344,23 @@ mod tests {
         patches
     }
 
-    fn temp() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "mxm-pack-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
+    /// A folder for one test's packs, under the build's own folder (never the real pack folder, and
+    /// never on C:), empty.
+    pub(crate) fn scratch(name: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/test-packs")
+            .join(format!(
+                "{name}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("a temporary root");
+        std::fs::create_dir_all(&dir).expect("a scratch root");
         dir
+    }
+
+    fn temp() -> PathBuf {
+        scratch("pack")
     }
 
     #[test]
@@ -424,6 +465,49 @@ mod tests {
             second.len() > first.len(),
             "an octave down is a longer file"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two writes of one kit at once each claim their own staging and commit a whole pack of their
+    /// own: neither mixes into the other, and nothing is left staged (model drums' review,
+    /// 2026-10-26).
+    #[test]
+    fn two_exports_at_once_write_two_whole_packs() {
+        let root = scratch("together");
+        let patches = patches();
+        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
+        let written: Vec<Written> = std::thread::scope(|scope| {
+            let writers: Vec<_> = (0..2)
+                .map(|_| {
+                    let (root, kit) = (&root, &kit);
+                    scope.spawn(move || write(root, "Same Kit", kit, &patches).expect("a pack"))
+                })
+                .collect();
+            writers
+                .into_iter()
+                .map(|w| w.join().expect("joins"))
+                .collect()
+        });
+        assert_ne!(written[0].directory, written[1].directory);
+        for pack in &written {
+            let files = std::fs::read_dir(&pack.directory)
+                .expect("the pack")
+                .count();
+            assert_eq!(
+                files, 3,
+                "two one-shots and the manifest in {:?}",
+                pack.directory
+            );
+        }
+        let staged = std::fs::read_dir(&root)
+            .expect("the root")
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .is_ok_and(|e| e.file_name().to_string_lossy().contains("incomplete"))
+            })
+            .count();
+        assert_eq!(staged, 0, "nothing left staged");
         let _ = std::fs::remove_dir_all(&root);
     }
 

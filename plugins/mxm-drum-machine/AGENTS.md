@@ -176,6 +176,10 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
 - **One capture per engage**: nothing re-renders while engaged, because installing a kit cuts
   sound. To change a frozen kit: off, edit, on. Tune, Decay and Soft hits (Controls 1, 2 and 5)
   stay live as playback controls; Tune, a key and bend only on a model that has Tune, as live.
+- **Export writes the kit heard, under its name**: the patches its kit was captured from and the
+  kit's name then (`capture_worker::Heard`, the engage `Telemetry::frozen` names), Tune, Decay and
+  Soft hits as set now, never an edit or a kit loaded since. **An activation keeps a kit at its rate whose patch has not
+  moved** and captures one that has, as a state restored between two activations.
 - Running toggles go to `capture_worker::CaptureWorker`, one thread per instance joined in its
   `Drop`. **Never use nice-plug's `AsyncExecutor::execute_background`; `task_executor` stays a no-op.**
 - `service_captures` is a pointer swap with no allocation, lock or drop. `CaptureBank` hands kits
@@ -188,8 +192,10 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   whatever the host runs at; the capture that plays follows the host.
 - Export requires Resample engaged (otherwise disabled, with its reason), runs on the capture thread
   through `capture_worker::Gate`, and picks its folder through `mxm_ui::offthread`.
-- **A test names a temporary directory; nothing may resolve the real pack root inside one**
-  (`pack::root_under`). An existing pack is never overwritten: write a unique sibling, then rename.
+- **A test writes its packs under the build's own folder** (`pack::tests::scratch`), never on C:;
+  nothing may resolve the real pack root inside one (`pack::root_under`). An existing pack is never
+  overwritten, and each write stages in a directory of its own (`pack::claim_staging`) whose
+  rename takes the name, so two instances exporting at once write two whole packs.
 
 ## Realtime ([NOTES.md § Realtime](NOTES.md#realtime))
 

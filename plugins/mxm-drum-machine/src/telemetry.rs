@@ -57,6 +57,9 @@ pub struct Telemetry {
     /// handed work faster than it can retire it — the shape that crashed hosts when these
     /// requests were nice-plug background tasks.
     capture_wanted: AtomicU64,
+    /// The engage whose kit plays, plus one, or zero for none (`set_frozen`): what Export asks for
+    /// the patches that kit was captured from (`capture_worker::Gate::heard_for`).
+    frozen: AtomicU64,
     /// The host tempo in force, for the synced rates' readings (`plans/plan-tempo-sync-controls.md`).
     pub tempo: mxm_tempo::TempoCell,
     /// The slots the editor asked to hear, a bit a slot (`request_audition`).
@@ -71,6 +74,7 @@ impl Default for Telemetry {
             slot_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
             export: std::sync::Mutex::new(None),
             capture_wanted: AtomicU64::new(0),
+            frozen: AtomicU64::new(0),
             tempo: mxm_tempo::TempoCell::new(),
             audition: AtomicU32::new(0),
         }
@@ -133,6 +137,24 @@ impl Telemetry {
     pub fn publish_slot_peaks(&self, peaks: [f32; SLOT_COUNT]) {
         for (target, peak) in self.slot_peaks.iter().zip(peaks) {
             max_combine(target, peak);
+        }
+    }
+
+    /// Says which engage's kit plays, or that none does. **Audio thread** (an install or a
+    /// disengage) and `activate`: one relaxed store.
+    pub fn set_frozen(&self, engagement: Option<u32>) {
+        self.frozen.store(
+            engagement.map_or(0, |e| u64::from(e) + 1),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// The engage whose kit plays, if one does.
+    #[must_use]
+    pub fn frozen(&self) -> Option<u32> {
+        match self.frozen.load(Ordering::Relaxed) {
+            0 => None,
+            word => Some((word - 1) as u32),
         }
     }
 

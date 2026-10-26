@@ -161,10 +161,10 @@ pub struct MxmDrumMachine {
     multi_output: bool,
     /// The rate the installed kit was rendered at, or `None` for no kit.
     ///
-    /// **Not the patch.** A frozen kit is captured once, when Resample is engaged, and a
-    /// parameter edit never re-renders it (owner, 2026-09-21) — so the patch it came from is not
-    /// something anything needs to compare against. The rate is, because a kit rendered at a rate
-    /// the engine has since left is unplayable rather than merely out of date.
+    /// While engaged a frozen kit is captured once, and a parameter edit never re-renders it
+    /// (owner, 2026-09-21), so `process` compares only the rate: a kit rendered at a rate the
+    /// engine has since left is unplayable rather than merely out of date. An activation also
+    /// compares the patch it was captured from (`refresh_captures`).
     captured: Option<f32>,
     /// The lock-free handoff the capture worker publishes into (`capture_bank`).
     bank: Arc<capture_bank::CaptureBank>,
@@ -487,6 +487,7 @@ impl MxmDrumMachine {
                     self.bank.retire(displaced);
                 }
                 self.captured = None;
+                self.telemetry.set_frozen(None);
             }
             // Cleared whether or not a kit was installed: disengaging is what arms the next
             // capture, and a request that never landed must not count as this engage's one.
@@ -511,6 +512,7 @@ impl MxmDrumMachine {
                     self.bank.retire(displaced);
                 }
                 self.captured = Some(kit_rate);
+                self.telemetry.set_frozen(Some(self.engagement));
             } else {
                 self.bank.retire(kit);
                 if this_engage {
@@ -553,19 +555,44 @@ impl MxmDrumMachine {
     /// A capture that fails leaves the instrument live rather than silent, which is the safe way
     /// round: the circuits are always a correct rendering of the patch.
     fn refresh_captures(&mut self) {
+        use mxm_drum_machine_dsp::capture::capture_patch;
         if !self.params.resample.value() {
             drop(self.engine.set_captures(None));
             self.captured = None;
             self.asked = false;
-            return;
-        }
-        // Already a kit at this rate: nothing to do, and re-rendering would restart every
-        // sounding reader for no audible reason.
-        #[allow(clippy::float_cmp)]
-        if self.captured == Some(self.sample_rate) {
+            self.telemetry.set_frozen(None);
             return;
         }
         let patches = capture_patches(&self.params);
+        // **A kit at this rate whose patch has not moved is kept** (re-rendering it would only
+        // restart every sounding reader), as this engage's; a state restored since, at the same
+        // rate, is captured again (model drums' review, 2026-10-26).
+        let heard = self
+            .telemetry
+            .frozen()
+            .and_then(|engagement| self.export_gate.heard_for(engagement))
+            .map(|heard| heard.patches);
+        #[allow(clippy::float_cmp)]
+        let at_rate = self.captured == Some(self.sample_rate);
+        if at_rate
+            && let Some(heard) = heard
+            && heard
+                .iter()
+                .zip(&patches)
+                .all(|(was, now)| capture_patch(*was) == capture_patch(*now))
+        {
+            // The patch has not moved, so the kit loaded now names what plays.
+            self.export_gate.remember(
+                self.engagement,
+                capture_worker::Heard {
+                    patches: heard,
+                    name: kit_name(&self.params),
+                },
+            );
+            self.telemetry.set_frozen(Some(self.engagement));
+            self.asked = false;
+            return;
+        }
         match mxm_drum_machine_dsp::capture::capture_kit(&patches, self.sample_rate) {
             Ok(kit) => {
                 drop(
@@ -573,11 +600,20 @@ impl MxmDrumMachine {
                         .set_captures(Some(Box::new(kit.answering(self.engagement)))),
                 );
                 self.captured = Some(self.sample_rate);
+                self.export_gate.remember(
+                    self.engagement,
+                    capture_worker::Heard {
+                        patches,
+                        name: kit_name(&self.params),
+                    },
+                );
+                self.telemetry.set_frozen(Some(self.engagement));
                 self.asked = false;
             }
             Err(_) => {
                 drop(self.engine.set_captures(None));
                 self.captured = None;
+                self.telemetry.set_frozen(None);
                 self.asked = false;
             }
         }
@@ -1764,6 +1800,80 @@ mod full_layout {
         assert_ne!(
             live_out.main[0], frozen_out.main[0],
             "a frozen slot plays its capture, not its circuit"
+        );
+    }
+
+    /// **A reactivation at the same rate captures a patch that moved** (model drums' review,
+    /// 2026-10-26: a state restored between two activations), and keeps the kit of one that did
+    /// not.
+    #[test]
+    fn a_same_rate_reactivation_captures_a_changed_patch() {
+        use nice_plug::params::InternalParamMut;
+        let frozen = |params: &MxmDrumMachineParams| {
+            // SAFETY: exclusive test ownership; no process or GUI thread exists.
+            unsafe { params.resample._internal_set_plain_value(true) };
+        };
+        let reactivate = |plugin: &mut MxmDrumMachine| {
+            for (_, ptr, _) in plugin.params.param_map() {
+                // SAFETY: as above.
+                unsafe { ptr._internal_update_smoother(SAMPLE_RATE, true) };
+            }
+            assert!(plugin.activate(
+                &MxmDrumMachine::AUDIO_IO_LAYOUTS[1],
+                &BufferConfig {
+                    sample_rate: SAMPLE_RATE,
+                    min_buffer_size: Some(1),
+                    max_buffer_size: 4096,
+                    process_mode: ProcessMode::Realtime,
+                },
+                &mut Activation,
+            ));
+        };
+        let heard = |plugin: &MxmDrumMachine| {
+            let engagement = plugin.telemetry.frozen().expect("frozen");
+            plugin
+                .export_gate
+                .heard_for(engagement)
+                .expect("remembered")
+                .patches[0]
+                .model
+        };
+        let mut plugin = activated(1, frozen);
+        let init = heard(&plugin);
+        let first = plugin.telemetry.frozen();
+        reactivate(&mut plugin);
+        assert_ne!(
+            plugin.telemetry.frozen(),
+            first,
+            "the kit is this engage's now"
+        );
+        assert_eq!(heard(&plugin), init, "the unchanged patch's, kept");
+
+        // SAFETY: as above.
+        unsafe {
+            plugin.params.slots[0]
+                .model
+                ._internal_set_plain_value(i32::from(ModelId::TWIN_MODE_SNARE.raw()));
+        }
+        reactivate(&mut plugin);
+        assert_eq!(
+            heard(&plugin),
+            ModelId::TWIN_MODE_SNARE,
+            "the changed patch captured"
+        );
+        let mut fresh = activated(1, |params| {
+            frozen(params);
+            // SAFETY: as above.
+            unsafe {
+                params.slots[0]
+                    .model
+                    ._internal_set_plain_value(i32::from(ModelId::TWIN_MODE_SNARE.raw()));
+            }
+        });
+        assert_eq!(
+            render(&mut plugin, &[36]).main,
+            render(&mut fresh, &[36]).main,
+            "and played as a fresh activation plays it"
         );
     }
 

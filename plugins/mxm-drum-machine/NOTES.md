@@ -1489,3 +1489,28 @@ like in now we cant navigate or edit so end/finish this", "and it is easy to hit
 on the keys". So it is OPEN, on the model name only: on a knob OPEN still types the value. A test
 hit is 100 of 127, a DAW's usual note, so it plays the strength a hit is mostly played at rather
 than the hardest.
+
+## Resample after model drums' review (2026-10-26)
+
+Model drums' port of Resample was reviewed (`/agent-loop`, Pi), and three of its findings were this
+design's; the owner: "fix the Resample bugs in the drum machine too". Each has its test:
+
+- **Export rendered the parameters**, so an edit while frozen, which renders nothing, still reached
+  the pack. The patches each engage's kit was captured from are now kept beside the gate (the last
+  two, as a new engage's kit can be made while the old one plays), and Export renders those, with
+  the playback controls as set now, and named for the kit captured, as a kit loaded while frozen
+  is not what plays either (this fix's own review)
+  (`an_export_while_frozen_writes_the_kit_heard_not_an_edit_since`).
+- **A reactivation at the same rate kept the kit** even when a state restored between the two had
+  changed the patch. It now keeps the kit only when the remembered patches equal the current ones
+  through `capture_patch`, what a capture is a pure function of
+  (`a_same_rate_reactivation_captures_a_changed_patch`).
+- **Two instances exporting the same kit at once shared one staging folder**
+  (`.<name>.incomplete`), so their files could mix. Each write now claims its own, and the rename
+  takes the first free name, moving on if another write took it first
+  (`two_exports_at_once_write_two_whole_packs`).
+- Model drums' fourth finding, a frozen ring cutting its fifth hit, does not apply: frozen hits
+  here never ring on under each other, each restarting its slot's reader (`Retrigger::Restart`),
+  as each slot plays one circuit live.
+- The pack's and the gate's tests wrote into the system's temporary folder, on C:; they write under
+  the build's own folder now, as nothing works on C: (the workspace, 2026-10-25).
