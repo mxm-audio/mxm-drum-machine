@@ -1478,3 +1478,14 @@ is matched bit-for-bit on Windows only and within rounding elsewhere, because th
 Windows' bits (the owner, 2026-10-06); CI builds and tests Windows, macOS and Linux on `v*` release
 tags or when started by hand, and Linux is checked in WSL before a push (root `AGENTS.md`,
 *Verification*).
+
+## Hearing a slot from the editor (2026-10-26)
+
+The owner: "When I click the model name with the mouse, the drum should play", "It is just meant as
+an easy way to test the sound when editing", and for both drum plugins. Asked for its key, a job of
+its own was offered on Z, the one key free in the language's block; the owner: "No. I dont want to
+use a whole key for such a small job. use enter", since "enter also has a subtext of 'end of line'
+like in now we cant navigate or edit so end/finish this", "and it is easy to hit with your fingers
+on the keys". So it is OPEN, on the model name only: on a knob OPEN still types the value. A test
+hit is 100 of 127, a DAW's usual note, so it plays the strength a hit is mostly played at rather
+than the hardest.

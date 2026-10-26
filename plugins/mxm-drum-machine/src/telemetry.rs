@@ -59,6 +59,8 @@ pub struct Telemetry {
     capture_wanted: AtomicU64,
     /// The host tempo in force, for the synced rates' readings (`plans/plan-tempo-sync-controls.md`).
     pub tempo: mxm_tempo::TempoCell,
+    /// The slots the editor asked to hear, a bit a slot (`request_audition`).
+    audition: AtomicU32,
 }
 
 impl Default for Telemetry {
@@ -70,6 +72,7 @@ impl Default for Telemetry {
             export: std::sync::Mutex::new(None),
             capture_wanted: AtomicU64::new(0),
             tempo: mxm_tempo::TempoCell::new(),
+            audition: AtomicU32::new(0),
         }
     }
 }
@@ -131,6 +134,20 @@ impl Telemetry {
         for (target, peak) in self.slot_peaks.iter().zip(peaks) {
             max_combine(target, peak);
         }
+    }
+
+    /// Asks for `slot` to be struck, as a test of its sound (the editor's model name, clicked or
+    /// OPEN on it); `process` strikes it at its next buffer's first sample.
+    pub fn request_audition(&self, slot: usize) {
+        if slot < SLOT_COUNT {
+            self.audition.fetch_or(1 << slot, Ordering::Relaxed);
+        }
+    }
+
+    /// The slots asked for since the last call, a bit a slot, each taken once.
+    #[must_use]
+    pub fn take_audition(&self) -> u32 {
+        self.audition.swap(0, Ordering::Relaxed)
     }
 
     #[must_use]

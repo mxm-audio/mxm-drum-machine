@@ -143,8 +143,9 @@ selection border cannot cover it. The immutable two-digit slot number sits outsi
 MIDI note
 numbers are not shown. Each row also shows the current public model label, selected state, bounded
 activity and compact square `M`/`S` buttons for Mute/Solo. Their full names remain in tooltips and
-accessibility. Clicking the model button selects what the Generator/Tone cards edit; it does not fire
-a transient note. Clicking `S` also selects that slot. Selection must be unmistakable across the
+accessibility. Clicking the model button, or OPEN on it, selects what the Generator/Tone cards edit
+and strikes the slot at velocity 100 of 127, to hear it while editing (the owner, 2026-10-26).
+Clicking `S` also selects that slot. Selection must be unmistakable across the
 whole row—selection fill, a moderate accent outline and a narrow leading rail—not only the shared
 button's slight selected-state shift. Text weight and all frame geometry stay constant, so selection
 never moves or resizes the controls. Mute and Solo act after the circuit, preserving tails and shared-machine state;
@@ -164,7 +165,8 @@ The only permitted disclosure is **Model notes**, inside the Model card: concise
 sound mechanism, pitch behaviour and audible shared interactions. Evidence status, parameter
 identity, compatibility guarantees and implementation terminology belong in project documentation,
 not editor help. The editor is measured with Model notes open. There is no setup drawer, utility
-macro layer, model editor, randomizer or mouse-audition command path.
+macro layer, model editor or randomizer; the one audition is the slot's model button (§ the slot
+rows).
 
 Routing is parameter-local and slot-local. Each continuous control's owning card places its route
 rows directly below the control group — the rows of the slot's four route slots aimed at that

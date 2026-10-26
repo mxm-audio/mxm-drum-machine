@@ -62,6 +62,14 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   (`slot_name_width`, measured from the font) and cut beyond; a slot with nothing to call it shows
   its number. It is a cursor stop (`SLOT_NAME_KEYS`): double-click or OPEN types, Enter keeps,
   Escape (BACK) cancels, and the hover says the whole name, the slot and its note or channel.
+- **A click on a slot's model name, or OPEN with the cursor on it, selects the slot and strikes
+  it**, to hear it while editing (the owner, 2026-10-26; Enter rather than a key of its own, [NOTES.md
+  § Hearing a slot](NOTES.md#hearing-a-slot-from-the-editor-2026-10-26)): at `AUDITION_VELOCITY`,
+  through `Telemetry::request_audition`, which `process` strikes at its next buffer's first sample
+  as a hit on that slot (a buffer of no frames leaves it for the next; `reset` drops it); the editor's GUI task wakes a host that let the plugin sleep (nice-plug's
+  process wake). The names are cursor stops (`SLOT_MODEL_KEYS`), as the name boxes are. Held by
+  `a_click_or_open_on_a_model_name_selects_and_strikes_its_slot` and
+  `a_slot_asked_to_be_heard_is_struck_at_the_next_buffer`.
 
 ## Drums ([NOTES.md § Implemented drums](NOTES.md#implemented-drums-deliberate-behavior))
 
@@ -140,8 +148,8 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   rows read their knob's name (Level, not *Amplitude*). An Off or unavailable id keeps the eleven
   general controls, disabled. **No engineering prose in editor copy**; the model's description is
   the selector's hover text, in the sound's words.
-- Selection is transient editor state; clicking a slot never auditions it and selection never moves
-  a control. Durable edits are bracketed gestures through one binding module.
+- Selection is transient editor state and never moves a control; the model name's click strikes
+  the slot (*Slot names*, above). Durable edits are bracketed gestures through one binding module.
 - The Model card's sound trace renders off the audio thread from the actual DSP model; never a
   decorative curve. Every card body is a `mxm_ui::tree` with computed floors; the one declared
   number is `SLOT_MODEL_MIN`.

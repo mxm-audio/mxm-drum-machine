@@ -90,6 +90,8 @@ fn paint_every_card() -> HashSet<String> {
                     &mut nav,
                     // Headless: no executor, so Export draws disabled.
                     None,
+                    // Nothing is struck here: no slot is asked to be heard.
+                    &|_| {},
                 );
             });
             if pass == 3 {
@@ -222,6 +224,7 @@ fn every_slot_rows_mute_and_solo_line_up() {
                 &mut presets,
                 &mut nav,
                 None,
+                &|_| {},
             );
         });
         if pass == 3 {

@@ -52,6 +52,10 @@ fn legacy_note(voice_id: VoiceID, channel: Channel, key: Key) -> (Option<i32>, u
 }
 
 const INTERNAL_BLOCK: usize = 64;
+/// How hard a slot is struck when the editor asks to hear it (`Telemetry::request_audition`): 100 of
+/// MIDI's 127, a DAW's usual note (the owner, 2026-10-26: "an easy way to test the sound when
+/// editing").
+pub const AUDITION_VELOCITY: f32 = 100.0 / 127.0;
 /// The Kit key slot 0 answers on; slot `n` answers on `FIRST_KEY + n`.
 pub(crate) const FIRST_KEY: u8 = 36;
 const NUM_CHANNELS: usize = 16;
@@ -91,6 +95,10 @@ pub enum CaptureTask {
         sample_rate: f32,
         destination: Option<std::path::PathBuf>,
     },
+    /// Nothing to do: a GUI task scheduled only to wake a host that has let the plugin sleep, so a
+    /// slot the editor asks to hear sounds now (`Telemetry::request_audition`; nice-plug's MXM
+    /// patch, the GUI-task process wake).
+    Wake,
 }
 
 /// What to call an exported pack: the loaded kit's name, or a plain default.
@@ -745,7 +753,7 @@ impl Plugin for MxmDrumMachine {
         slot_names::filter(&mut state.fields);
     }
 
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Self::Editor> {
+    fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Self::Editor> {
         // Captures are asked for through the ordinary parameter path — toggling Resample is a
         // parameter edit, `process` notices it and the capture thread picks it up with no editor
         // involved. **Export is not**: it is a transient act with no value to save or automate,
@@ -761,7 +769,10 @@ impl Plugin for MxmDrumMachine {
                 let CaptureTask::ExportPack {
                     sample_rate,
                     destination,
-                } = task;
+                } = task
+                else {
+                    return;
+                };
                 // No folder chosen means the default one. Where a platform has no local data
                 // directory there is nowhere to default to, and the status line says so rather
                 // than the button doing nothing.
@@ -771,7 +782,10 @@ impl Plugin for MxmDrumMachine {
                 }
             })
         };
-        editor::create(self.params.clone(), self.telemetry.clone(), spawn)
+        // A slot the editor asks to hear waits in `Telemetry` for the next `process`; the task
+        // wakes a host that has let the plugin sleep.
+        let wake: editor::Wake = Arc::new(move || async_executor.execute_gui(CaptureTask::Wake));
+        editor::create(self.params.clone(), self.telemetry.clone(), spawn, wake)
     }
 
     fn activate(
@@ -823,6 +837,8 @@ impl Plugin for MxmDrumMachine {
     fn reset(&mut self) {
         self.engine.reset();
         self.parts = PartState::new();
+        // A hit the editor asked for before the reset is pending input, cleared with the rest.
+        let _ = self.telemetry.take_audition();
         self.engine
             .reset_output_destinations(&self.output_destinations());
     }
@@ -842,6 +858,13 @@ impl Plugin for MxmDrumMachine {
         let samples = buffer.samples();
         let output = buffer.as_slice();
         let mut next_event = context.next_event();
+        // The slots the editor asked to hear, struck at the buffer's first sample as a note would be;
+        // a callback of no frames has no first sample, so it leaves the request for the next.
+        let mut audition = if samples > 0 {
+            self.telemetry.take_audition()
+        } else {
+            0
+        };
 
         for block_start in (0..samples).step_by(INTERNAL_BLOCK) {
             for index in 0..SLOT_COUNT {
@@ -861,17 +884,31 @@ impl Plugin for MxmDrumMachine {
             while index < block_end {
                 // Collect and resolve only at event offsets: an event-free sample changes no
                 // ownership, so it does not pay for the bounded group.
-                let events = if next_event.is_some_and(|event| event.timing() as usize <= index) {
-                    let mut events = EventGroup::new();
-                    while let Some(event) = next_event {
-                        if event.timing() as usize > index {
-                            break;
+                let due = next_event.is_some_and(|event| event.timing() as usize <= index);
+                let events = if due || audition != 0 {
+                    let mut resolved = if due {
+                        let mut events = EventGroup::new();
+                        while let Some(event) = next_event {
+                            if event.timing() as usize > index {
+                                break;
+                            }
+                            self.handle_developer_event(event);
+                            events.collect(event);
+                            next_event = context.next_event();
                         }
-                        self.handle_developer_event(event);
-                        events.collect(event);
-                        next_event = context.next_event();
+                        self.resolve_events(&events)
+                    } else {
+                        ResolvedEvents {
+                            triggers: TriggerGroup::new(),
+                            chokes: 0,
+                            panic: false,
+                        }
+                    };
+                    for slot in (0..SLOT_COUNT).filter(|slot| audition & (1 << slot) != 0) {
+                        resolved.triggers.push(slot, AUDITION_VELOCITY);
                     }
-                    Some(self.resolve_events(&events))
+                    audition = 0;
+                    Some(resolved)
                 } else {
                     None
                 };
@@ -1739,6 +1776,39 @@ mod full_layout {
         );
     }
 
+    /// A slot the editor asks to hear (`Telemetry::request_audition`) is struck at the next
+    /// buffer's first sample, and the request is taken: the render after it, asked nothing, is
+    /// silent where it was not.
+    #[test]
+    fn a_slot_asked_to_be_heard_is_struck_at_the_next_buffer() {
+        let mut plugin = activated(1, |_| {});
+        let quiet = render(&mut plugin, &[]);
+        assert!(silent(&quiet.main[0]), "nothing asked, nothing sounds");
+        plugin.telemetry.request_audition(0);
+        // A host's callback of no frames first: it has no sample to strike at, so it leaves the
+        // request for the next (model drums' review, round 2).
+        let _ = render_frames(&mut plugin, &[], None, 0);
+        let struck = render(&mut plugin, &[]);
+        assert!(!silent(&struck.main[0]), "slot 1 sounds");
+        assert!(
+            struck.main[0][0] != 0.0 || struck.main[0][1] != 0.0,
+            "from its first samples"
+        );
+        assert_eq!(plugin.telemetry.take_audition(), 0, "the request was taken");
+    }
+
+    /// A reset clears a hit asked for before it, as it clears every pending event.
+    #[test]
+    fn a_reset_drops_a_slot_asked_to_be_heard() {
+        let mut plugin = activated(1, |_| {});
+        plugin.telemetry.request_audition(0);
+        plugin.reset();
+        assert!(
+            silent(&render(&mut plugin, &[]).main[0]),
+            "nothing sounds after the reset"
+        );
+    }
+
     #[test]
     fn toggling_resample_while_running_swaps_the_kit_in_through_the_bank() {
         // The live path end to end: `process` notices the toggle and asks, the worker renders and
@@ -2181,15 +2251,25 @@ mod full_layout {
         notes: &[u8],
         tempo: Option<f64>,
     ) -> Rendered {
+        render_frames(plugin, notes, tempo, FRAMES)
+    }
+
+    /// [`render_at`] of `frames`, as few as none.
+    fn render_frames(
+        plugin: &mut MxmDrumMachine,
+        notes: &[u8],
+        tempo: Option<f64>,
+        frames: usize,
+    ) -> Rendered {
         let ports = if plugin.multi_output { SLOT_COUNT } else { 0 };
-        let mut left = vec![0.0_f32; FRAMES];
-        let mut right = vec![0.0_f32; FRAMES];
-        let mut individual = vec![vec![0.0_f32; FRAMES]; ports];
+        let mut left = vec![0.0_f32; frames];
+        let mut right = vec![0.0_f32; frames];
+        let mut individual = vec![vec![0.0_f32; frames]; ports];
         {
             let mut main = Buffer::default();
             // SAFETY: the slices outlive the buffers, which are dropped at the end of this block.
             unsafe {
-                main.set_slices(FRAMES, |channels| {
+                main.set_slices(frames, |channels| {
                     channels.clear();
                     channels.push(left.as_mut_slice());
                     channels.push(right.as_mut_slice());
@@ -2202,7 +2282,7 @@ mod full_layout {
                     let mut buffer = Buffer::default();
                     // SAFETY: as above.
                     unsafe {
-                        buffer.set_slices(FRAMES, move |channels| {
+                        buffer.set_slices(frames, move |channels| {
                             channels.clear();
                             channels.push(port);
                         });

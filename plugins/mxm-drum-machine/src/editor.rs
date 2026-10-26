@@ -61,6 +61,27 @@ const RESAMPLE_CARD: u64 = 65;
 /// less the card's chrome and the row's number, Mute, Solo and spacing.
 const SLOT_MODEL_MIN: f32 = 140.0;
 /// The slot number's box, before the model button.
+/// The keys of the slots' model names in the keyboard cursor's registry, one a slot. Not
+/// parameters: OPEN on one strikes its slot (`slot_row`).
+pub const SLOT_MODEL_KEYS: [&str; SLOT_COUNT] = [
+    "slot_model_1",
+    "slot_model_2",
+    "slot_model_3",
+    "slot_model_4",
+    "slot_model_5",
+    "slot_model_6",
+    "slot_model_7",
+    "slot_model_8",
+    "slot_model_9",
+    "slot_model_10",
+    "slot_model_11",
+    "slot_model_12",
+    "slot_model_13",
+    "slot_model_14",
+    "slot_model_15",
+    "slot_model_16",
+];
+
 /// The keys of the slots' name boxes in the keyboard cursor's registry, one a slot. Not
 /// parameters: a name is the song's state (`crate::slot_names`).
 pub const SLOT_NAME_KEYS: [&str; SLOT_COUNT] = [
@@ -175,14 +196,19 @@ pub fn create(
     params: Arc<MxmDrumMachineParams>,
     telemetry: Arc<Telemetry>,
     spawn: Spawn,
+    wake: Wake,
 ) -> Option<MxmDrumMachineEditor> {
     mxm_editor::create(
         crate::NAME,
         REFERENCE,
         MINIMUM,
-        MxmDrumMachineApp::new(params, telemetry, Some(spawn)),
+        MxmDrumMachineApp::new(params, telemetry, Some(spawn), wake),
     )
 }
+
+/// Wakes a host that has let the plugin sleep, so a slot asked to be heard sounds now
+/// (`Telemetry::request_audition`).
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Submits a background task from the editor.
 ///
@@ -195,6 +221,7 @@ pub struct MxmDrumMachineApp {
     params: Arc<MxmDrumMachineParams>,
     telemetry: Arc<Telemetry>,
     spawn: Option<Spawn>,
+    wake: Wake,
     selected_slot: usize,
     text_entry: HashMap<&'static str, Option<String>>,
     presets: PresetUi,
@@ -206,12 +233,14 @@ impl MxmDrumMachineApp {
         params: Arc<MxmDrumMachineParams>,
         telemetry: Arc<Telemetry>,
         spawn: Option<Spawn>,
+        wake: Wake,
     ) -> Self {
         let params_for_presets = Arc::clone(&params);
         Self {
             params,
             telemetry,
             spawn,
+            wake,
             selected_slot: 0,
             text_entry: HashMap::new(),
             presets: PresetUi::new(params_for_presets.as_ref()),
@@ -222,6 +251,11 @@ impl MxmDrumMachineApp {
 
 impl mxm_editor::Panel for MxmDrumMachineApp {
     fn ui(&mut self, ui: &mut Ui, context: &GuiContext) {
+        let (telemetry, wake) = (&self.telemetry, &self.wake);
+        let audition = |slot: usize| {
+            telemetry.request_audition(slot);
+            wake();
+        };
         panel(
             ui,
             &self.params,
@@ -232,6 +266,7 @@ impl mxm_editor::Panel for MxmDrumMachineApp {
             &mut self.presets,
             &mut self.nav,
             self.spawn.as_ref(),
+            &audition,
         );
         // A name typed, or emptied by a kit load or Init: the host hears of it.
         crate::slot_names::announce(&self.params, context);
@@ -249,6 +284,7 @@ pub fn panel(
     presets: &mut PresetUi,
     nav: &mut mxm_ui::navigation::State,
     spawn: Option<&Spawn>,
+    audition: &dyn Fn(usize),
 ) {
     let tokens = tokens_for(ui);
     // No capture is serviced here. `process` asks for one through telemetry and the plugin's own
@@ -345,6 +381,7 @@ pub fn panel(
                 text_entry,
                 slot_peaks,
                 telemetry.tempo.get(),
+                audition,
             );
         });
 }
@@ -359,6 +396,7 @@ fn cards(
     text_entry: &mut HashMap<&'static str, Option<String>>,
     slot_peaks: [f32; SLOT_COUNT],
     tempo: Option<f64>,
+    audition: &dyn Fn(usize),
 ) {
     // Every card is built around the slot selected when the frame began. A click on another slot
     // lands on the next frame, which rebuilds every tree around it — so there is nothing to
@@ -375,6 +413,7 @@ fn cards(
         peaks: slot_peaks,
         text_editing,
         tempo,
+        audition,
     };
     mxm_ui::paging::editor::show(
         ui,
@@ -876,6 +915,8 @@ struct Live<'a, 'b> {
     text_editing: bool,
     /// The host tempo in force: a synced rate reads its division with one and its hertz without.
     tempo: Option<f64>,
+    /// Strikes a slot to hear it (`Telemetry::request_audition`).
+    audition: &'a dyn Fn(usize),
 }
 
 /// Draws one leaf, in the `Ui` the tree bounded to `rect`, through the bindings — so the controls,
@@ -894,6 +935,7 @@ fn paint(ui: &mut Ui, tokens: &Tokens, leaf: &Leaf, rect: egui::Rect, live: &mut
             setter,
             live.entries,
             live.text_editing,
+            live.audition,
         ),
         Leaf::Rate(index) => {
             let lfo = lfo(params, index);
@@ -1125,8 +1167,8 @@ fn slot_name_hover(params: &MxmDrumMachineParams, index: usize, shown: Option<&s
     format!("{name}{slot}, {plays}. Double-click to name it.")
 }
 
-/// One slot's inventory row: its name, its model — a button that selects the slot for editing —
-/// and its Mute and Solo, in a frame that carries the selection's fill. The activity bar and the
+/// One slot's inventory row: its name, its model — a button that selects the slot for editing and
+/// strikes it to be heard — and its Mute and Solo, in a frame that carries the selection's fill. The activity bar and the
 /// selection's outline and rail are painted over it. [`slot_row_min_width`] states its size.
 #[allow(clippy::too_many_arguments)]
 fn slot_row(
@@ -1139,6 +1181,7 @@ fn slot_row(
     setter: &ParamSetter<'_>,
     entries: &mut HashMap<&'static str, Option<String>>,
     text_editing: bool,
+    audition: &dyn Fn(usize),
 ) {
     let name = model_name(params.slots[index].model_id());
     let selected = *selected_slot == index;
@@ -1155,22 +1198,35 @@ fn slot_row(
             let controls =
                 2.0 * (mxm_ui::control::toggle_compact_size().x + ui.spacing().item_spacing.x);
             let width = (ui.available_width() - controls).max(SLOT_MODEL_MIN);
-            let response = ui.add_enabled_ui(!text_editing, |ui| {
-                ui.add_sized(
-                    egui::vec2(width, MIN_TARGET),
-                    // **Truncated, so the row is a column and not a ragged edge.** `add_sized` is a
-                    // floor, not a ceiling: without this a long model name — "Six-square closed
-                    // hat", "Triple-resonator rim" — grew the button past the width computed above
-                    // and shoved that row's M and S out of line with every other row's. The names
-                    // that need it are rare and the ellipsis is a backstop, exactly as
-                    // `control::fixed_label` argues for the knob name boxes.
-                    egui::Button::new(name).selected(selected).truncate(),
-                )
-            });
-            if response.inner.clicked() {
+            let key = SLOT_MODEL_KEYS[index];
+            let response = ui
+                .add_enabled_ui(!text_editing, |ui| {
+                    mxm_ui::navigation::at(ui, key, |ui| {
+                        let response = ui.add_sized(
+                            egui::vec2(width, MIN_TARGET),
+                            // **Truncated, so the row is a column and not a ragged edge.**
+                            // `add_sized` is a floor, not a ceiling: without this a long model
+                            // name — "Six-square closed hat", "Triple-resonator rim" — grew the
+                            // button past the width computed above and shoved that row's M and S
+                            // out of line with every other row's. The names that need it are rare
+                            // and the ellipsis is a backstop, exactly as `control::fixed_label`
+                            // argues for the knob name boxes.
+                            egui::Button::new(name).selected(selected).truncate(),
+                        );
+                        mxm_ui::navigation::mark(ui, &response, response.rect);
+                        response
+                    })
+                })
+                .inner
+                .on_hover_text("Plays this slot's drum and selects it for editing.");
+            // A click, or OPEN with the cursor on it, selects the slot and strikes it: a test of
+            // its sound while editing (the owner, 2026-10-26: "an easy way to test the sound when
+            // editing"; of Enter, "now we cant navigate or edit so end/finish this").
+            if response.clicked() || (!text_editing && mxm_ui::navigation::take_type(ui, key)) {
                 *selected_slot = index;
+                audition(index);
             }
-            let model_rect = response.inner.rect;
+            let model_rect = response.rect;
             let solo_clicked = ui
                 .add_enabled_ui(!text_editing, |ui| {
                     bound_toggle_compact(
@@ -2327,7 +2383,16 @@ mod tests {
             // No host here, so no executor: the export button draws disabled, which is the
             // same state it has whenever Resample is off.
             panel(
-                ui, params, telemetry, setter, slot, text_entry, presets, nav, None,
+                ui,
+                params,
+                telemetry,
+                setter,
+                slot,
+                text_entry,
+                presets,
+                nav,
+                None,
+                &|slot| telemetry.request_audition(slot),
             );
         }
     }
@@ -2828,9 +2893,77 @@ mod tests {
             .map(str::to_owned)
             .collect();
         ids.push(KIT_OUTPUTS_ID.to_owned());
-        // Each slot's name box: not a parameter, but in the cursor's reach.
+        // Each slot's name box and model name: not parameters, but in the cursor's reach.
         ids.extend(SLOT_NAME_KEYS.iter().map(|key| (*key).to_owned()));
+        ids.extend(SLOT_MODEL_KEYS.iter().map(|key| (*key).to_owned()));
         ids
+    }
+
+    /// A click on a slot's model name, or OPEN with the cursor on it, selects the slot and strikes
+    /// it, to hear it while editing (the owner, 2026-10-26); OPEN on a knob still types its value
+    /// and strikes nothing. Pressing jobs, as the language does.
+    #[test]
+    fn a_click_or_open_on_a_model_name_selects_and_strikes_its_slot() {
+        use keyboard_checks::{Job, key_of, press};
+        let params = MxmDrumMachineParams::default();
+        let telemetry = Telemetry::default();
+        let recorder = Arc::new(keyboard_checks::Recorder::default());
+        let setter = ParamSetter::new(recorder.as_ref());
+        let mut state = editor_state(&params);
+        let mut panel = drive(&params, &telemetry, &setter, &mut state);
+        let session =
+            keyboard_checks::Session::new(egui::vec2(REFERENCE.0 as f32, REFERENCE.1 as f32));
+        let none = egui::Modifiers::NONE;
+        let open = key_of(Job::from_name("open").unwrap());
+        session.settle(&mut panel);
+        let spot = |key: &str| {
+            mxm_ui::navigation::spots(session.context())
+                .into_iter()
+                .find(|spot| spot.key == key)
+                .unwrap_or_else(|| panic!("{key} is on the opening page"))
+        };
+        fn click(
+            session: &keyboard_checks::Session,
+            panel: &mut impl FnMut(&mut Ui),
+            at: egui::Pos2,
+        ) {
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            session.frame(panel, vec![egui::Event::PointerMoved(at), button(true)]);
+            session.frame(panel, vec![button(false)]);
+            session.frame(panel, Vec::new());
+        }
+
+        click(&session, &mut panel, spot(SLOT_MODEL_KEYS[2]).rect.center());
+        assert_eq!(telemetry.take_audition(), 1 << 2, "a click strikes slot 3");
+
+        // The click put the cursor on the name; OPEN strikes it again.
+        session.frame(&mut panel, press(open, none));
+        session.frame(&mut panel, Vec::new());
+        assert_eq!(telemetry.take_audition(), 1 << 2, "OPEN strikes slot 3");
+        drop(panel);
+        assert_eq!(state.0, 2, "and selects it");
+
+        // On a knob, OPEN types the value, as everywhere: nothing is struck.
+        let mut panel = drive(&params, &telemetry, &setter, &mut state);
+        session.settle(&mut panel);
+        let controls = &slot_ids(2)[at::control(1)..=at::control(CONTROLS)];
+        let knob = mxm_ui::navigation::spots(session.context())
+            .into_iter()
+            .find(|spot| controls.contains(&spot.key.as_str()))
+            .expect("one of slot 3's knobs is on the opening page");
+        click(&session, &mut panel, knob.rect.center());
+        session.frame(&mut panel, press(open, none));
+        session.frame(&mut panel, Vec::new());
+        assert_eq!(
+            telemetry.take_audition(),
+            0,
+            "OPEN on a knob strikes nothing"
+        );
     }
 
     /// OPEN on a slot's name box types a name over the one it is given; Enter keeps it. BACK
@@ -3305,6 +3438,7 @@ mod tests {
                 text_editing: false,
                 // A tempo, so a synced rate reads its division — the widest reading it has.
                 tempo: Some(120.0),
+                audition: &|_| {},
             };
             tree_checks::card(
                 &|_| {},
