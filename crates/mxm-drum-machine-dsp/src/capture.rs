@@ -514,6 +514,8 @@ struct Reader {
 pub struct CaptureVoice {
     readers: [Reader; READERS_PER_SLOT],
     struck: u64,
+    /// The playback rate the last frame read at: what [`Self::remaining_frames`] reads ahead by.
+    rate: f64,
 }
 
 impl Default for CaptureVoice {
@@ -536,6 +538,7 @@ impl CaptureVoice {
                 active: false,
             }; READERS_PER_SLOT],
             struck: 0,
+            rate: 1.0,
         }
     }
 
@@ -602,6 +605,20 @@ impl CaptureVoice {
         self.readers.iter().any(|r| r.active)
     }
 
+    /// The frames until every hit has read `capture` out at the rate the last frame read at: Decay
+    /// can end one sooner. Pitched down, a hit reads it out slowly, so this is what the plugin tells
+    /// a host as its tail.
+    #[must_use]
+    pub fn remaining_frames(&self, capture: &SlotCapture) -> u64 {
+        let len = capture.len() as f64;
+        self.readers
+            .iter()
+            .filter(|r| r.active)
+            .map(|r| ((len - r.position).max(0.0) / self.rate.max(f64::MIN_POSITIVE)).ceil() as u64)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Renders one frame, at `pitch_semitones` of playback rate when the capture's model has Tune
     /// ([`SlotCapture::playback_semitones`]).
     ///
@@ -614,6 +631,7 @@ impl CaptureVoice {
         }
         let pitch_semitones = capture.playback_semitones(pitch_semitones);
         let rate = f64::from(2.0_f32.powf(pitch_semitones / 12.0));
+        self.rate = rate;
         let samples = capture.samples();
         let mut sum = 0.0_f32;
         for reader in &mut self.readers {
@@ -736,6 +754,29 @@ mod tests {
         let mut patches = [SlotPatch::default(); SLOT_COUNT];
         patches[0].model = model;
         patches
+    }
+
+    /// A hit's remaining length is its capture read out at the rate it plays: an octave down,
+    /// twice what is left of it.
+    #[test]
+    fn a_hit_an_octave_down_has_twice_its_capture_left() {
+        let patches = [SlotPatch {
+            model: ModelId::DEEP_BRIDGE_KICK,
+            ..SlotPatch::default()
+        }; SLOT_COUNT];
+        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
+        let capture = kit.slot(0);
+        let mut voice = CaptureVoice::new();
+        assert_eq!(
+            voice.remaining_frames(capture),
+            0,
+            "nothing sounding, nothing left"
+        );
+        voice.trigger(capture, 1.0, patches[0].decay, Retrigger::Restart, 48_000.0);
+        let _ = voice.process(capture, -12.0);
+        let left = voice.remaining_frames(capture);
+        let want = 2 * capture.len() as u64 - 1;
+        assert!(left.abs_diff(want) <= 2, "{left} not {want}");
     }
 
     #[test]

@@ -596,6 +596,21 @@ impl Engine {
         self.captures.is_some()
     }
 
+    /// The frames until every frozen hit has read its capture out, or `None` with no kit
+    /// installed: a hit read slowly (pitched down) can outlast the live tail.
+    #[must_use]
+    pub fn frozen_tail_frames(&self) -> Option<u64> {
+        let kit = self.captures.as_deref()?;
+        Some(
+            self.slots
+                .iter()
+                .enumerate()
+                .map(|(index, slot)| slot.capture_voice.remaining_frames(kit.slot(index)))
+                .max()
+                .unwrap_or(0),
+        )
+    }
+
     pub fn set_tempo_bpm(&mut self, tempo_bpm: f32) {
         self.tempo_bpm = finite_or(tempo_bpm, 120.0).clamp(30.0, 300.0);
     }

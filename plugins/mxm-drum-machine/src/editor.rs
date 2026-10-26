@@ -141,6 +141,12 @@ const EXPORT_CHOOSING: &str = "Choosing…";
 const EXPORT_HELP: &str = "Choose a folder and write this kit into it as numbered 24-bit WAV one-shots, for a tracker or a sampler. Turn Resample on first, so you hear them before they leave.";
 /// Why the export cannot be used, on both forms.
 const EXPORT_DISABLED: &str = "Turn Resample on first: a pack is the samples you are hearing.";
+/// Why the export cannot run at all: the capture thread did not start, on both forms.
+const EXPORT_UNAVAILABLE: &str =
+    "Resample cannot run here: the system would not start the thread that records the kit.";
+/// Why the export waits, Resample on and its kit not yet installed, on both forms.
+const EXPORT_CAPTURING: &str =
+    "Resample is still recording the kit: a pack is the samples you are hearing.";
 /// Resample's help, on the bar's toggle and on its row in the `…` menu alike.
 const RESAMPLE_HELP: &str = "Plays every slot from a recording of itself; Tune, Decay and Soft hits still work. To change anything else, turn this off, edit, and turn it on again.";
 /// The pair's rows in the app bar's `…` menu at the bar's last step ([`resample_menu_items`]).
@@ -2077,7 +2083,21 @@ fn route_every_slot(params: &MxmDrumMachineParams, setter: &ParamSetter<'_>, own
 ///
 /// The work goes to the plugin's capture thread and never through the audio thread: it renders and
 /// writes files, neither of which belongs in `process` or in an editor frame.
-fn export_button(ui: &mut Ui, engaged: bool, width: f32, spawn: Option<&Spawn>) {
+/// Why Export cannot be used now, or `None`: Resample off, or on with its kit not yet installed
+/// (`Telemetry::frozen`), when the parameters may not be what will play.
+fn export_blocked(params: &MxmDrumMachineParams, telemetry: &Telemetry) -> Option<&'static str> {
+    if telemetry.capture_unavailable() {
+        Some(EXPORT_UNAVAILABLE)
+    } else if !params.resample.value() {
+        Some(EXPORT_DISABLED)
+    } else if telemetry.frozen().is_none() {
+        Some(EXPORT_CAPTURING)
+    } else {
+        None
+    }
+}
+
+fn export_button(ui: &mut Ui, blocked: Option<&str>, width: f32, spawn: Option<&Spawn>) {
     // **"Export samples", not "Export pack"** (owner, 2026-09-22, and their original wording).
     // The preset browser's footer already has an `Export…` that packs *presets* into a bank file,
     // a few centimetres away in the same window; two buttons reading "Export" that do unrelated
@@ -2085,7 +2105,7 @@ fn export_button(ui: &mut Ui, engaged: bool, width: f32, spawn: Option<&Spawn>) 
     let picking = mxm_ui::offthread::running::<std::path::PathBuf>(ui.ctx(), folder_picker());
     let button = ui
         .add_enabled(
-            engaged && spawn.is_some() && !picking,
+            blocked.is_none() && spawn.is_some() && !picking,
             egui::Button::new(if picking {
                 EXPORT_CHOOSING
             } else {
@@ -2094,7 +2114,7 @@ fn export_button(ui: &mut Ui, engaged: bool, width: f32, spawn: Option<&Spawn>) 
             .min_size(egui::vec2(width, mxm_ui::space::MIN_TARGET)),
         )
         .on_hover_text(EXPORT_HELP)
-        .on_disabled_hover_text(EXPORT_DISABLED);
+        .on_disabled_hover_text(blocked.unwrap_or(EXPORT_DISABLED));
     if button.clicked() {
         start_export(ui.ctx());
     }
@@ -2164,8 +2184,11 @@ fn resample_menu_items(
             .to_owned(),
             hover: EXPORT_HELP.to_owned(),
             kind: MenuKind::Action,
-            disabled: (!(engaged && spawn.is_some() && !picking))
-                .then(|| EXPORT_DISABLED.to_owned()),
+            disabled: {
+                let blocked = export_blocked(params, telemetry);
+                (blocked.is_some() || spawn.is_none() || picking)
+                    .then(|| blocked.unwrap_or(EXPORT_DISABLED).to_owned())
+            },
         },
     ];
     let status = export_status_text(ctx, telemetry);
@@ -2250,7 +2273,6 @@ fn resample_pair(
     setter: &ParamSetter<'_>,
     spawn: Option<&Spawn>,
 ) {
-    let engaged = params.resample.value();
     let width = resample_pair_width(ui, params);
     ui.allocate_ui_with_layout(
         egui::vec2(
@@ -2276,7 +2298,7 @@ fn resample_pair(
                     .rect
                 })
             });
-            export_button(ui, engaged, width, spawn);
+            export_button(ui, export_blocked(params, telemetry), width, spawn);
         },
     );
     export_status(ui, tokens, telemetry);
@@ -3643,6 +3665,30 @@ mod tests {
         assert_ne!(
             &reference.high[..PREVIEW_ATTACK_BINS],
             &tuned.high[..PREVIEW_ATTACK_BINS]
+        );
+    }
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+    use nice_plug::params::InternalParamMut;
+    /// Export waits for the kit heard and says why (the whole review): off, still recording, ready,
+    /// and a capture thread that never started.
+    #[test]
+    fn export_waits_for_the_kit_heard_and_says_why() {
+        let params = MxmDrumMachineParams::default();
+        let telemetry = Telemetry::shared();
+        assert_eq!(export_blocked(&params, &telemetry), Some(EXPORT_DISABLED));
+        // SAFETY: exclusive test ownership; no process or GUI thread exists.
+        unsafe { params.resample._internal_set_plain_value(true) };
+        assert_eq!(export_blocked(&params, &telemetry), Some(EXPORT_CAPTURING));
+        telemetry.set_frozen(Some(1));
+        assert_eq!(export_blocked(&params, &telemetry), None);
+        telemetry.set_capture_unavailable(true);
+        assert_eq!(
+            export_blocked(&params, &telemetry),
+            Some(EXPORT_UNAVAILABLE)
         );
     }
 }

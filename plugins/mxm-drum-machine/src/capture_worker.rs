@@ -205,6 +205,12 @@ impl CaptureWorker {
             .ok();
         Self { shared, thread }
     }
+
+    /// Whether the thread started: spawning fails only when the system has none to give.
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
+        self.thread.is_some()
+    }
 }
 
 impl Drop for CaptureWorker {
@@ -321,36 +327,43 @@ fn capture(shared: &Shared, inputs: &Inputs, request: CaptureRequest) {
     inputs.bank.drain();
 }
 
+/// Why an Export found no kit to write: Resample's capture has not been installed yet.
+pub const EXPORT_NOT_READY: &str = "Resample is still recording the kit; export again in a moment.";
+
 /// Renders a kit and writes it out as a sample pack, reporting the outcome either way.
 ///
-/// Abandoned if the plugin goes away mid-render, so closing a project does not wait on a pack —
-/// and abandoned *before* the first file is written, so it never leaves half a pack behind.
+/// Abandoned if the plugin goes away mid-render or mid-write, so closing a project does not wait
+/// on a pack; files already staged are removed, so it never leaves half a pack behind.
 fn export(shared: &Shared, inputs: &Inputs, sample_rate: f32, root: &std::path::Path) {
     let current = crate::capture_patches(&inputs.params);
     // **The kit heard**: frozen, the patches its kit was captured from (an edit since renders
-    // nothing, so a pack of the parameters would not be what plays), at the pack's rate; the
-    // playback controls (Tune, Decay, Soft hits) as set now, as they are live.
+    // nothing, so a pack of the parameters would not be what plays), at the pack's rate; Tune and
+    // Decay as set now, as they are live. A pack is struck at full strength, so Soft hits, a
+    // velocity curve, cannot reach it.
     let heard = inputs
         .telemetry
         .frozen()
         .and_then(|engagement| shared.heard_for(engagement));
-    let (captured, patches, name) = match heard {
-        Some(heard) => {
-            let mut patches = heard.patches;
-            for (patch, now) in patches.iter_mut().zip(&current) {
-                patch.pitch_semitones = now.pitch_semitones;
-                patch.decay = now.decay;
-                patch.dynamics = now.dynamics;
-            }
-            (heard.patches, patches, heard.name)
-        }
-        None => (current, current, crate::kit_name(&inputs.params)),
+    // **Only the kit heard makes a pack**: until a capture is installed, nothing frozen plays and
+    // the parameters may not be what will (the editor's Export waits for it too).
+    let Some(heard) = heard else {
+        inputs
+            .telemetry
+            .publish_export(Export::Failed(EXPORT_NOT_READY.to_owned()));
+        return;
     };
+    let mut patches = heard.patches;
+    for (patch, now) in patches.iter_mut().zip(&current) {
+        patch.pitch_semitones = now.pitch_semitones;
+        patch.decay = now.decay;
+    }
+    let (captured, name) = (heard.patches, heard.name);
     let stop = || stopping(shared);
     let written = mxm_drum_machine_dsp::capture::capture_kit_until(&captured, sample_rate, &stop)
         .map_err(|error| format!("{error:?}"))
         .and_then(|kit| {
-            crate::pack::write(root, &name, &kit, &patches).map_err(|error| error.to_string())
+            crate::pack::write_until(root, &name, &kit, &patches, &stop)
+                .map_err(|error| error.to_string())
         });
     inputs.telemetry.publish_export(match written {
         Ok(written) => Export::Written {
@@ -515,8 +528,7 @@ mod tests {
 
     /// **Export writes the kit heard, under its name** (model drums' review, 2026-10-26): frozen,
     /// an edit renders nothing and a kit loaded since is not what plays, so the pack is the patches
-    /// the playing kit was captured from, named for it; with nothing frozen, the parameters and the
-    /// kit loaded.
+    /// the playing kit was captured from, named for it; with no kit installed, no pack and why.
     #[test]
     fn an_export_while_frozen_writes_the_kit_heard_not_an_edit_since() {
         use nice_plug::params::InternalParamMut;
@@ -555,16 +567,23 @@ mod tests {
             "the pack is the kit heard, under its name"
         );
 
+        assert!(matches!(
+            inputs.telemetry.take_export(),
+            Some(Export::Written { .. })
+        ));
+
         inputs.telemetry.set_frozen(None);
         let live = crate::pack::tests::scratch("heard-live");
         export(&gate.0, &inputs, 48_000.0, &live);
-        let ((live_name, live_files), (heard_name, heard_files)) =
-            (pack_files(&live), pack_files(&reference));
-        assert_ne!(
-            live_name, heard_name,
-            "with nothing frozen, the kit loaded names the pack"
+        assert!(
+            matches!(inputs.telemetry.take_export(), Some(Export::Failed(why)) if why == EXPORT_NOT_READY),
+            "with no kit installed, Export says why"
         );
-        assert_ne!(live_files, heard_files, "and its edit is in it");
+        assert_eq!(
+            std::fs::read_dir(&live).expect("the root").count(),
+            0,
+            "and writes nothing"
+        );
         for root in [frozen, reference, live] {
             let _ = std::fs::remove_dir_all(root);
         }

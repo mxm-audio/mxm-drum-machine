@@ -1514,3 +1514,27 @@ design's; the owner: "fix the Resample bugs in the drum machine too". Each has i
   as each slot plays one circuit live.
 - The pack's and the gate's tests wrote into the system's temporary folder, on C:; they write under
   the build's own folder now, as nothing works on C: (the workspace, 2026-10-25).
+
+- **The whole change, reviewed again once pushed** (`/agent-loop`, 2026-10-26): Export was
+  enabled once Resample was on, and in the moment before its kit installed it wrote the
+  parameters, which an edit then could make other than what plays; it now waits for the kit, in
+  the editor and on the capture thread. The capture thread's work stops for the plugin's teardown
+  between the files of a pack, so closing a project during an export to slow storage does
+  not hold the host. A kit called `CON`, `AUX` or another Windows device name could not be
+  exported: it takes `-kit`. A failure to
+  start the capture thread, first declined, is said since round 2.
+- **Soft hits never reached a pack**: a pack is struck at full strength, and Soft hits is the
+  velocity curve, so copying it into the export changed no byte; the contract no longer claims it.
+
+- **Round 2 of that review**: a frozen hit can outlast the seven-second tail a host is told (a
+  capture runs to eight seconds, and played slower it lasts longer), so the tail told is the longer
+  of the two, read from the frozen hits. A one-shot's render stops for teardown between chunks;
+  a teardown waits at most for one file's write. A capture thread that could not start is
+  now said, Export disabled with why, where it waited silently: the case needs the system out of
+  threads, but saying so costs one flag.
+
+- **Round 3**: an export held every one-shot before writing any, and sixteen eight-second cymbals
+  read four octaves slower come to about 400 MB, an infallible allocation that fails aborting the
+  host: a pack is now written a slot at a time, each buffer reserved fallibly. A file is written
+  a mebibyte at a time with the cancel checked between, so a slow card never holds a teardown for
+  a whole file. The tail is worked out in integers, as a float rounds a long one down.

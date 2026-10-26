@@ -858,14 +858,17 @@ impl Plugin for MxmDrumMachine {
         // `activate` (a rate change, say) keeps the thread it already has, because the rate
         // travels with each request rather than being fixed when the thread starts.
         if self.worker.is_none() {
-            self.worker = Some(capture_worker::CaptureWorker::spawn(
+            let worker = capture_worker::CaptureWorker::spawn(
                 &self.export_gate,
                 capture_worker::Inputs {
                     params: self.params.clone(),
                     bank: self.bank.clone(),
                     telemetry: self.telemetry.clone(),
                 },
-            ));
+            );
+            // Resample stays live and correct without it; the editor says why it never freezes.
+            self.telemetry.set_capture_unavailable(!worker.is_running());
+            self.worker = Some(worker);
         }
         true
     }
@@ -987,7 +990,11 @@ impl Plugin for MxmDrumMachine {
         }
 
         if self.engine.is_active() {
-            ProcessStatus::Tail((7.0 * self.sample_rate).min(u32::MAX as f32) as u32)
+            // A frozen hit read out slowly can outlast the live tail: the longer is told, so a host
+            // asking how long to keep processing does not cut it off.
+            let live = (7.0 * self.sample_rate) as u64;
+            let frozen = self.engine.frozen_tail_frames().unwrap_or(0);
+            ProcessStatus::Tail(live.max(frozen).min(u64::from(u32::MAX)) as u32)
         } else {
             ProcessStatus::Normal
         }

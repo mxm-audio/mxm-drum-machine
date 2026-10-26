@@ -1,7 +1,7 @@
 //! Lock-free DSP-to-editor activity and developer requests.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use mxm_drum_machine_dsp::SLOT_COUNT;
 
@@ -60,6 +60,9 @@ pub struct Telemetry {
     /// The engage whose kit plays, plus one, or zero for none (`set_frozen`): what Export asks for
     /// the patches that kit was captured from (`capture_worker::Gate::heard_for`).
     frozen: AtomicU64,
+    /// The capture thread could not be started, so Resample can never freeze and Export never
+    /// runs: the editor says so (`set_capture_unavailable`).
+    capture_unavailable: AtomicBool,
     /// The host tempo in force, for the synced rates' readings (`plans/plan-tempo-sync-controls.md`).
     pub tempo: mxm_tempo::TempoCell,
     /// The slots the editor asked to hear, a bit a slot (`request_audition`).
@@ -75,6 +78,7 @@ impl Default for Telemetry {
             export: std::sync::Mutex::new(None),
             capture_wanted: AtomicU64::new(0),
             frozen: AtomicU64::new(0),
+            capture_unavailable: AtomicBool::new(false),
             tempo: mxm_tempo::TempoCell::new(),
             audition: AtomicU32::new(0),
         }
@@ -147,6 +151,18 @@ impl Telemetry {
             engagement.map_or(0, |e| u64::from(e) + 1),
             Ordering::Relaxed,
         );
+    }
+
+    /// Says whether the capture thread failed to start. **`activate`.**
+    pub fn set_capture_unavailable(&self, unavailable: bool) {
+        self.capture_unavailable
+            .store(unavailable, Ordering::Relaxed);
+    }
+
+    /// Whether the capture thread failed to start.
+    #[must_use]
+    pub fn capture_unavailable(&self) -> bool {
+        self.capture_unavailable.load(Ordering::Relaxed)
     }
 
     /// The engage whose kit plays, if one does.

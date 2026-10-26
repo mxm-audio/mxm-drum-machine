@@ -177,8 +177,9 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   sound. To change a frozen kit: off, edit, on. Tune, Decay and Soft hits (Controls 1, 2 and 5)
   stay live as playback controls; Tune, a key and bend only on a model that has Tune, as live.
 - **Export writes the kit heard, under its name**: the patches its kit was captured from and the
-  kit's name then (`capture_worker::Heard`, the engage `Telemetry::frozen` names), Tune, Decay and
-  Soft hits as set now, never an edit or a kit loaded since. **An activation keeps a kit at its rate whose patch has not
+  kit's name then (`capture_worker::Heard`, the engage `Telemetry::frozen` names), Tune and Decay
+  as set now, never an edit or a kit loaded since; a pack is struck at full strength, so Soft hits,
+  a velocity curve, cannot reach it. **An activation keeps a kit at its rate whose patch has not
   moved** and captures one that has, as a state restored between two activations.
 - Running toggles go to `capture_worker::CaptureWorker`, one thread per instance joined in its
   `Drop`. **Never use nice-plug's `AsyncExecutor::execute_background`; `task_executor` stays a no-op.**
@@ -190,8 +191,17 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   `mxm-audio-file-decode`. Files stop before the mix: unity gain, centred, Tune and Decay applied
   (`the_mix_cannot_change_an_exported_byte`). A pack's rate is fixed (`editor::PACK_SAMPLE_RATE`),
   whatever the host runs at; the capture that plays follows the host.
-- Export requires Resample engaged (otherwise disabled, with its reason), runs on the capture thread
-  through `capture_worker::Gate`, and picks its folder through `mxm_ui::offthread`.
+- **Export requires Resample's kit installed**: disabled, with its reason, while Resample is off or
+  still recording (`editor::export_blocked`), and refused by the capture thread too
+  (`capture_worker::EXPORT_NOT_READY`), as the parameters may not be what will play. It runs on the
+  capture thread through `capture_worker::Gate`, and picks its folder through `mxm_ui::offthread`.
+- **The capture thread stops for teardown at every step**: between chunks of a render and of a
+  one-shot, and every mebibyte of a pack's files (`pack::write_until`, the staging removed). What
+  a teardown can wait for is one mebibyte written. **A pack is written one slot at a time**, each
+  one-shot's buffer reserved fallibly (`PackError::Allocation`), as a slot read slowly can be long. A kit named for a Windows device (`CON`, `AUX`,
+  `COM1`, …) takes `-kit` (`pack::slug`).
+- **A capture thread that could not start is said** (`Telemetry::capture_unavailable`): Resample
+  stays live and correct, and Export is disabled with why.
 - **A test writes its packs under the build's own folder** (`pack::tests::scratch`), never on C:;
   nothing may resolve the real pack root inside one (`pack::root_under`). An existing pack is never
   overwritten, and each write stages in a directory of its own (`pack::claim_staging`) whose
@@ -207,7 +217,8 @@ DSP and model behavior belong to [`../../crates/mxm-drum-machine-dsp/AGENTS.md`]
   response passed in, and order-independent; same-offset controller events keep host order. Output selectors apply before
   triggers; buffers are capped at 64 samples between event checks.
 - Smoothers advance once per rendered sample; telemetry publishes once per internal block;
-  `ProcessStatus::Tail` while any circuit is active, otherwise `Normal`.
+  `ProcessStatus::Tail` while any circuit is active, otherwise `Normal`, its length the longer of
+  seven seconds and what the frozen hits have left to read (`Engine::frozen_tail_frames`).
 
 # Work Guidance
 

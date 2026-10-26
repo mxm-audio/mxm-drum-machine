@@ -60,6 +60,10 @@ pub enum PackError {
     Encode(String),
     /// The file system refused.
     Io(std::io::Error),
+    /// The plugin is closing, so the export stopped, leaving nothing behind.
+    Cancelled,
+    /// A one-shot's buffer could not be had: a slot read very slowly is long.
+    Allocation { slot: usize, frames: usize },
 }
 
 impl std::fmt::Display for PackError {
@@ -69,6 +73,12 @@ impl std::fmt::Display for PackError {
             Self::Empty => write!(f, "every slot is Off, so there is nothing to export"),
             Self::Encode(why) => write!(f, "the audio could not be encoded: {why}"),
             Self::Io(error) => write!(f, "{error}"),
+            Self::Cancelled => write!(f, "the export stopped, as the plugin closed"),
+            Self::Allocation { slot, frames } => write!(
+                f,
+                "slot {}'s one-shot needs {frames} samples, more memory than there is",
+                slot + 1
+            ),
         }
     }
 }
@@ -106,9 +116,29 @@ pub fn one_shot(
     patch: &SlotPatch,
     sample_rate: f32,
 ) -> Vec<f32> {
+    one_shot_until(capture, slot, patch, sample_rate, &|| false).unwrap_or_default()
+}
+
+/// How often a one-shot's render asks whether to stop: pitched down, one reads its capture out up
+/// to sixteen times as long.
+const CANCEL_CHECK_FRAMES: usize = 4_096;
+
+/// [`one_shot`], stopping if `cancelled` says to, asked every [`CANCEL_CHECK_FRAMES`].
+///
+/// # Errors
+///
+/// [`PackError::Cancelled`] when it stopped, [`PackError::Allocation`] when its buffer cannot be
+/// had: reserved fallibly, as an infallible allocation that fails aborts the host.
+pub fn one_shot_until(
+    capture: &KitCapture,
+    slot: usize,
+    patch: &SlotPatch,
+    sample_rate: f32,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Vec<f32>, PackError> {
     let slot_capture = capture.slot(slot);
     if slot_capture.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut voice = CaptureVoice::new();
     voice.trigger(
@@ -122,11 +152,19 @@ pub fn one_shot(
     // rate is the reader's own: a model without Tune plays at its captured rate.
     let rate = 2.0_f32.powf(slot_capture.playback_semitones(patch.pitch_semitones) / 12.0);
     let bound = ((slot_capture.len() as f32 / rate.max(0.01)).ceil() as usize) + 1;
-    let mut out = Vec::with_capacity(bound);
+    let mut out = Vec::new();
+    out.try_reserve_exact(bound)
+        .map_err(|_| PackError::Allocation {
+            slot,
+            frames: bound,
+        })?;
     while voice.is_active() && out.len() < bound {
+        if out.len() % CANCEL_CHECK_FRAMES == 0 && cancelled() {
+            return Err(PackError::Cancelled);
+        }
         out.push(voice.process(slot_capture, patch.pitch_semitones));
     }
-    out
+    Ok(out)
 }
 
 /// A file-system-safe name for a model's public label.
@@ -148,6 +186,15 @@ pub fn slug(label: &str) -> String {
     }
     while out.ends_with('-') {
         out.pop();
+    }
+    // Windows reserves these for its devices, in any case, so no folder or file may be called one;
+    // a pack is named the same on all three platforms, so the name moves aside everywhere.
+    let device = matches!(out.as_str(), "con" | "prn" | "aux" | "nul")
+        || (out.len() == 4
+            && (out.starts_with("com") || out.starts_with("lpt"))
+            && out.as_bytes()[3].is_ascii_digit());
+    if device {
+        out.push_str("-kit");
     }
     if out.is_empty() {
         "slot".to_owned()
@@ -215,40 +262,54 @@ pub fn write(
     capture: &KitCapture,
     patches: &[SlotPatch; SLOT_COUNT],
 ) -> Result<Written, PackError> {
+    write_until(root, kit, capture, patches, &|| false)
+}
+
+/// [`write`], stopping between one file and the next if `cancelled` says to, the staging removed:
+/// the form for the capture thread, which the plugin's teardown joins, so a pack to slow or
+/// removable storage cannot hold a closing host for its whole length.
+///
+/// # Errors
+///
+/// As [`write`], plus [`PackError::Cancelled`].
+pub fn write_until(
+    root: &Path,
+    kit: &str,
+    capture: &KitCapture,
+    patches: &[SlotPatch; SLOT_COUNT],
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Written, PackError> {
     let rate = capture.sample_rate() as u32;
-    let mut rendered: Vec<(usize, String, Vec<f32>)> = Vec::new();
-    for (slot, patch) in patches.iter().enumerate() {
-        let samples = one_shot(capture, slot, patch, capture.sample_rate());
-        if samples.is_empty() {
-            continue;
-        }
-        let name = format!("{:02}-{}.wav", slot + 1, slug(model::label(patch.model)));
-        rendered.push((slot, name, samples));
-    }
-    if rendered.is_empty() {
+    if (0..SLOT_COUNT).all(|slot| capture.slot(slot).is_empty()) {
         return Err(PackError::Empty);
     }
 
     let staging = claim_staging(root, kit)?;
 
+    // **One slot at a time**: rendered, encoded and written before the next is rendered, as a
+    // one-shot read slowly can be long, and sixteen held at once hundreds of megabytes.
     let mut clipped = 0;
     let mut names: [Option<String>; SLOT_COUNT] = std::array::from_fn(|_| None);
     let written = (|| -> Result<usize, PackError> {
-        for (slot, name, samples) in &rendered {
-            let encoded = mxm_audio_file::write(
-                staging.join(name),
-                samples,
-                1,
-                rate,
-                Target::Wav(Bits::TwentyFour),
-            )
-            .map_err(|error| PackError::Encode(format!("{error:?}")))?;
+        let mut files = 0;
+        for (slot, patch) in patches.iter().enumerate() {
+            let samples = one_shot_until(capture, slot, patch, capture.sample_rate(), cancelled)?;
+            if samples.is_empty() {
+                continue;
+            }
+            let (bytes, encoded) =
+                mxm_audio_file::encode(&samples, 1, rate, Target::Wav(Bits::TwentyFour))
+                    .map_err(|error| PackError::Encode(format!("{error:?}")))?;
+            drop(samples);
+            let name = format!("{:02}-{}.wav", slot + 1, slug(model::label(patch.model)));
+            write_file_until(&staging.join(&name), &bytes, cancelled)?;
             clipped += encoded.clipped;
-            names[*slot] = Some(name.clone());
+            names[slot] = Some(name);
+            files += 1;
         }
         let text = manifest(kit, capture, patches, &names);
         std::fs::write(staging.join("kit.txt"), text)?;
-        Ok(rendered.len())
+        Ok(files)
     })();
 
     let files = match written {
@@ -261,6 +322,10 @@ pub fn write(
         }
     };
 
+    if cancelled() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(PackError::Cancelled);
+    }
     match commit(root, kit, &staging) {
         Ok(directory) => Ok(Written {
             directory,
@@ -272,6 +337,28 @@ pub fn write(
             Err(error)
         }
     }
+}
+
+/// How much of a file is written between two looks at whether to stop.
+const WRITE_CHUNK_BYTES: usize = 1 << 20;
+
+/// Writes `bytes` as the file at `path` a mebibyte at a time, stopping if `cancelled` says to: a
+/// pack's destination is often removable media, slow to write, and the plugin's teardown waits on
+/// the capture thread. The file is in the staging directory, which a failure removes whole.
+fn write_file_until(
+    path: &Path,
+    bytes: &[u8],
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), PackError> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(path)?;
+    for chunk in bytes.chunks(WRITE_CHUNK_BYTES) {
+        if cancelled() {
+            return Err(PackError::Cancelled);
+        }
+        file.write_all(chunk)?;
+    }
+    Ok(())
 }
 
 /// Makes this write's own staging directory beside the packs, named so no other write's can be: its
@@ -511,6 +598,77 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A one-shot's render asked to stop, stops.
+    #[test]
+    fn a_cancelled_one_shot_stops() {
+        let patches = patches();
+        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
+        assert!(matches!(
+            one_shot_until(&kit, 0, &patches[0], 48_000.0, &|| true),
+            Err(PackError::Cancelled)
+        ));
+        assert!(!one_shot(&kit, 0, &patches[0], 48_000.0).is_empty());
+    }
+
+    /// A file is written a mebibyte at a time, the cancel asked before each: asked to stop after
+    /// the first, it stops there, one mebibyte on the disk.
+    #[test]
+    fn a_file_stops_between_its_mebibytes() {
+        let root = scratch("chunks");
+        let path = root.join("three.bin");
+        let bytes = vec![7_u8; 3 * WRITE_CHUNK_BYTES];
+        let asked = std::cell::Cell::new(0);
+        let cancelled = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 1
+        };
+        assert!(matches!(
+            write_file_until(&path, &bytes, &cancelled),
+            Err(PackError::Cancelled)
+        ));
+        assert_eq!(
+            asked.get(),
+            2,
+            "asked before the first mebibyte and the second"
+        );
+        let written = std::fs::metadata(&path).expect("the file").len();
+        assert_eq!(
+            written, WRITE_CHUNK_BYTES as u64,
+            "one mebibyte, then it stopped"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A write the teardown cancels part-way, one file staged, leaves nothing: no pack, nothing
+    /// staged.
+    #[test]
+    fn a_cancelled_write_leaves_nothing_behind() {
+        let root = scratch("cancelled");
+        let patches = patches();
+        let kit = capture_kit(&patches, 48_000.0).expect("a kit");
+        // Cancelled once a file is staged: as its bytes are being written, part-way through.
+        let staged = || {
+            std::fs::read_dir(&root)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|entry| {
+                    std::fs::read_dir(entry.path()).is_ok_and(|mut files| files.next().is_some())
+                })
+        };
+        let cancelled = || staged();
+        assert!(matches!(
+            write_until(&root, "Kit", &kit, &patches, &cancelled),
+            Err(PackError::Cancelled)
+        ));
+        assert_eq!(
+            std::fs::read_dir(&root).expect("the root").count(),
+            0,
+            "nothing left"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn an_empty_kit_is_refused_rather_than_written() {
         let root = temp();
@@ -545,6 +703,11 @@ pub(crate) mod tests {
         assert_eq!(slug("Deep bridge kick"), "deep-bridge-kick");
         assert_eq!(slug("Six-bit crash"), "six-bit-crash");
         assert_eq!(slug("  ...  "), "slot");
+        // Windows' device names, in any case, move aside; a name that only starts with one does not.
+        assert_eq!(slug("CON"), "con-kit");
+        assert_eq!(slug("Aux"), "aux-kit");
+        assert_eq!(slug("lpt9"), "lpt9-kit");
+        assert_eq!(slug("Console"), "console");
         assert_eq!(slug("Early 2L"), "early-2l");
     }
 
