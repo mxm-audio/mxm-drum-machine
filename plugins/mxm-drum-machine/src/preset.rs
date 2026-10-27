@@ -33,8 +33,13 @@ impl Instrument for MxmDrumMachineParams {
         &self.preset
     }
 
-    fn factory_files(&self) -> &'static [(&'static str, &'static str)] {
+    /// The installed set, but in a unit test, which is loaded from no bundle: the repository's.
+    #[cfg(test)]
+    fn factory_files(&self) -> Vec<(String, String)> {
         FACTORY_FILES
+            .iter()
+            .map(|(name, json)| ((*name).to_owned(), (*json).to_owned()))
+            .collect()
     }
 
     fn is_instance_setting(&self, id: &str) -> bool {
@@ -72,177 +77,22 @@ impl Instrument for MxmDrumMachineParams {
 /// The audition kits lead the factory list; the creative kits follow them.
 pub const AUDITION_KITS: usize = 9;
 
-/// Every factory kit, compiled in: the nine audition kits in the selector's family order, then
-/// the fifty creative kits in `creative.rs`'s order.
-pub const FACTORY_FILES: &[(&str, &str)] = &[
-    ("Bridge 808", include_str!("../presets/bridge-808.json")),
-    ("Reset 909", include_str!("../presets/reset-909.json")),
-    ("Economy 55", include_str!("../presets/economy-55.json")),
-    (
-        "Expanded 8000",
-        include_str!("../presets/expanded-8000.json"),
-    ),
-    ("Compact 606", include_str!("../presets/compact-606.json")),
-    ("Snap 110", include_str!("../presets/snap-110.json")),
-    ("Classic 78", include_str!("../presets/classic-78.json")),
-    ("Discrete 66", include_str!("../presets/discrete-66.json")),
-    ("Early 2L", include_str!("../presets/early-2l.json")),
-    ("Bridge Boom", include_str!("../presets/bridge-boom.json")),
-    ("Bridge Tight", include_str!("../presets/bridge-tight.json")),
-    ("Reset Club", include_str!("../presets/reset-club.json")),
-    ("Reset Ride", include_str!("../presets/reset-ride.json")),
-    (
-        "Expanded Studio",
-        include_str!("../presets/expanded-studio.json"),
-    ),
-    (
-        "Classic Parlour",
-        include_str!("../presets/classic-parlour.json"),
-    ),
-    (
-        "Discrete Lounge",
-        include_str!("../presets/discrete-lounge.json"),
-    ),
-    (
-        "Early Organ-Top",
-        include_str!("../presets/early-organ-top.json"),
-    ),
-    (
-        "Compact Battery",
-        include_str!("../presets/compact-battery.json"),
-    ),
-    ("Snap Pocket", include_str!("../presets/snap-pocket.json")),
-    (
-        "Heavy Bottom, Bright Top",
-        include_str!("../presets/heavy-bottom-bright-top.json"),
-    ),
-    (
-        "Reset Low, Bridge High",
-        include_str!("../presets/reset-low-bridge-high.json"),
-    ),
-    (
-        "Rhythm Box Mixtape",
-        include_str!("../presets/rhythm-box-mixtape.json"),
-    ),
-    ("One of Each", include_str!("../presets/one-of-each.json")),
-    ("Bridged Pair", include_str!("../presets/bridged-pair.json")),
-    (
-        "Lo-Fi Tops, Wooden Floor",
-        include_str!("../presets/lo-fi-tops-wooden-floor.json"),
-    ),
-    (
-        "Hand Percussion Machines",
-        include_str!("../presets/hand-percussion-machines.json"),
-    ),
-    (
-        "Snappy Hybrid",
-        include_str!("../presets/snappy-hybrid.json"),
-    ),
-    (
-        "Pentatonic Toms",
-        include_str!("../presets/pentatonic-toms.json"),
-    ),
-    ("Diode Choir", include_str!("../presets/diode-choir.json")),
-    (
-        "Syn-Tom Sweeps",
-        include_str!("../presets/syn-tom-sweeps.json"),
-    ),
-    (
-        "Woodshop Marimba",
-        include_str!("../presets/woodshop-marimba.json"),
-    ),
-    (
-        "Talking Congas",
-        include_str!("../presets/talking-congas.json"),
-    ),
-    (
-        "Six-Square Foundry",
-        include_str!("../presets/six-square-foundry.json"),
-    ),
-    (
-        "Cowbell Chord",
-        include_str!("../presets/cowbell-chord.json"),
-    ),
-    (
-        "Rust and Chrome",
-        include_str!("../presets/rust-and-chrome.json"),
-    ),
-    (
-        "Clockwork Hats",
-        include_str!("../presets/clockwork-hats.json"),
-    ),
-    (
-        "Noise Cymbal Wash",
-        include_str!("../presets/noise-cymbal-wash.json"),
-    ),
-    (
-        "Four-Voice Economy",
-        include_str!("../presets/four-voice-economy.json"),
-    ),
-    ("Pocket Pair", include_str!("../presets/pocket-pair.json")),
-    (
-        "Thrift Store Drive",
-        include_str!("../presets/thrift-store-drive.json"),
-    ),
-    (
-        "Six-Bit Budget",
-        include_str!("../presets/six-bit-budget.json"),
-    ),
-    ("Toy Box", include_str!("../presets/toy-box.json")),
-    (
-        "Warehouse Pulse",
-        include_str!("../presets/warehouse-pulse.json"),
-    ),
-    (
-        "Electro Breaks",
-        include_str!("../presets/electro-breaks.json"),
-    ),
-    (
-        "Minimal Clicks",
-        include_str!("../presets/minimal-clicks.json"),
-    ),
-    ("Trap Boom", include_str!("../presets/trap-boom.json")),
-    (
-        "House Shuffle",
-        include_str!("../presets/house-shuffle.json"),
-    ),
-    (
-        "Big Snare Eighties",
-        include_str!("../presets/big-snare-eighties.json"),
-    ),
-    (
-        "Rising Sweeps",
-        include_str!("../presets/rising-sweeps.json"),
-    ),
-    (
-        "Overdriven Wreck",
-        include_str!("../presets/overdriven-wreck.json"),
-    ),
-    ("LFO Drift", include_str!("../presets/lfo-drift.json")),
-    ("Glacial", include_str!("../presets/glacial.json")),
-    ("Hat Ladder", include_str!("../presets/hat-ladder.json")),
-    ("Cross-Cut", include_str!("../presets/cross-cut.json")),
-    (
-        "Shared Noise Section",
-        include_str!("../presets/shared-noise-section.json"),
-    ),
-    (
-        "Gentle Hybrid",
-        include_str!("../presets/gentle-hybrid.json"),
-    ),
-    (
-        "Hybrid Unhinged",
-        include_str!("../presets/hybrid-unhinged.json"),
-    ),
-    (
-        "Rhythm Box Polish",
-        include_str!("../presets/rhythm-box-polish.json"),
-    ),
-    (
-        "Rhythm Box Meltdown",
-        include_str!("../presets/rhythm-box-meltdown.json"),
-    ),
-];
+/// The factory set as it ships, `(name, json)` in its order: the repository's `presets/`, which
+/// is installed beside the plugin and read there (`mxm_preset::installed_factory_dir`). For the
+/// tests, the integration tests and the audits, which are loaded from no bundle; the plugin itself
+/// never reads it.
+pub static FACTORY_FILES: std::sync::LazyLock<Vec<(&'static str, &'static str)>> =
+    std::sync::LazyLock::new(|| {
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("presets");
+        mxm_preset::read_factory_dir(&folder)
+            .into_iter()
+            .map(|(file, json)| {
+                let name = mxm_preset::Preset::parse(&json, crate::CLAP_ID)
+                    .map_or(file, |preset| preset.name);
+                (&*String::leak(name), &*String::leak(json))
+            })
+            .collect()
+    });
 
 #[cfg(test)]
 mod creative;

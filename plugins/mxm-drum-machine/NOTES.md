@@ -1016,7 +1016,7 @@ Foundry's bank cowbell (about 0.5 dB), now untouched beside the hats it shares t
 
 - **Files**: the ignored `write_the_creative_kits` writes the fifty; the runs-by-default
   `the_shipped_kits_are_their_designs` builds each in memory and compares, changing nothing in the
-  checkout; `every_preset_file_is_a_listed_kit` keeps the folder and the compiled list one.
+  checkout; `every_preset_file_is_a_listed_kit` keeps each file named after the kit it holds.
 - **A default retune cannot collapse a kit's sparse overrides**, two ways. A file holds every
   parameter a kit stores, not only the design's overrides (`a_shipped_kit_never_leans_on_a_default`),
   so a changed default never reaches a shipped kit and the comparison above fails until the kit is
