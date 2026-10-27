@@ -1016,10 +1016,11 @@ mod tests {
             "the chord struck with a note nobody can hear"
         );
         assert_eq!(plugin.parts.owner(5).unwrap().key, 64);
-        // Slot 6's default model is a pitched tom, so key 64 is measured from its concert pitch.
+        // Slot 6's default model is the second kick, which plays in tune, so key 64 is measured
+        // from its concert pitch.
         assert_eq!(
             plugin.parts.chromatic_pitch(5),
-            64.0 - ModelId::new(20).chromatic_reference_key()
+            64.0 - ModelId::new(17).chromatic_reference_key()
         );
         assert_eq!(plugin.parts.tuning(5), 0.35);
 

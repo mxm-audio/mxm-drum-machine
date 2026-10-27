@@ -43,7 +43,9 @@ knows: its slots as the names read them (`slot_names.rs`, `DrumSlots`), its capt
   releases expression globally, regardless of claims.
 - The selector offers every available model. ID 0 stays a legacy silence value for old state but is
   not offered; IDs 95…255 are safe unavailable values. Init is the brief's sixteen-slot mixed
-  assignment, distinct from the nine audition presets.
+  assignment, distinct from the nine audition presets but **in their key layout** (the README's
+  table; the owner, 2026-10-27), so a beat written for one plays the same drums on the other:
+  `INIT_MODELS` in `params.rs`, held by `init_fills_only_completed_rows_of_the_final_kit`.
 
 ## Slot names ([NOTES.md § Slot names](NOTES.md#slot-names-2026-10-14))
 

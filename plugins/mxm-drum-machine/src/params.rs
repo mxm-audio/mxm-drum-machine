@@ -247,9 +247,12 @@ pub struct SlotParams {
 
 impl SlotParams {
     fn new(index: usize) -> Self {
-        // The brief's final sixteen-slot Init: every assignment is a completed circuit.
+        // The brief's final sixteen-slot Init, every assignment a completed circuit, in the
+        // factory kits' key layout (README): a beat written for one plays the same drums on the
+        // other. The second kick, snare and clap, the ride and the crash take the roles Init has
+        // no drum of its own for.
         const INIT_MODELS: [u8; SLOT_COUNT] =
-            [1, 17, 2, 18, 3, 20, 7, 22, 12, 23, 13, 15, 16, 14, 26, 27];
+            [1, 2, 3, 20, 7, 17, 18, 27, 22, 12, 15, 16, 14, 13, 23, 26];
         let default_model = INIT_MODELS[index];
         Self {
             model: model_param(default_model),
@@ -746,7 +749,7 @@ mod tests {
     #[test]
     fn init_fills_only_completed_rows_of_the_final_kit() {
         let params = MxmDrumMachineParams::default();
-        let expected = [1, 17, 2, 18, 3, 20, 7, 22, 12, 23, 13, 15, 16, 14, 26, 27];
+        let expected = [1, 2, 3, 20, 7, 17, 18, 27, 22, 12, 15, 16, 14, 13, 23, 26];
         for (slot, expected) in params.slots.iter().zip(expected) {
             assert_eq!(slot.model_id(), ModelId::new(expected));
         }

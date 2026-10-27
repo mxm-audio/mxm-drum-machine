@@ -59,8 +59,8 @@ mod tests {
 
     /// The Init kit's slots, each called what it is.
     const INIT: [&str; SLOT_COUNT] = [
-        "bd1", "bd2", "sn1", "sn2", "tm1", "tm2", "tm3", "rs1", "cp1", "cp2", "cb1", "ch1", "oh1",
-        "cy1", "cr1", "rd1",
+        "bd1", "sn1", "tm1", "tm2", "tm3", "bd2", "sn2", "rd1", "rs1", "cp1", "ch1", "oh1", "cy1",
+        "cb1", "cp2", "cr1",
     ];
 
     fn shown_names(params: &MxmDrumMachineParams) -> Vec<String> {
@@ -110,9 +110,9 @@ mod tests {
         );
 
         // Typing the name it is given keeps nothing, so it goes on following the model.
-        set(&params, 1, "bd1");
+        set(&params, 1, "sn2");
         assert_eq!(params.slot_names.read().unwrap()[1], "");
-        set(&params, 1, "bd1");
+        set(&params, 1, "sn2");
         assert!(!written(&params), "nothing changed, nothing to tell");
     }
 
@@ -131,10 +131,10 @@ mod tests {
         assert_eq!(shown(&params)[0].as_deref(), Some("bd1"));
         assert!(written(&params), "the editor tells the host");
 
-        set(&params, 2, "crack");
+        set(&params, 1, "crack");
         written(&params);
         mxm_preset::ui::init_patch(&params, &setter);
-        assert_eq!(shown(&params)[2].as_deref(), Some("sn1"));
+        assert_eq!(shown(&params)[1].as_deref(), Some("sn1"));
         assert!(written(&params));
 
         // With nothing typed, there is nothing to tell.

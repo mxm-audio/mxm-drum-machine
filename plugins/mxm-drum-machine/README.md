@@ -42,6 +42,10 @@ source machine. They use one fixed key layout, muting a role when that machine d
 | 44–48 | Rim, clap/brush, closed hat, open hat, cymbal/crash |
 | 49–51 | Cowbell, clave, auxiliary percussion |
 
+Init, a mixed kit of its own, keeps the same layout, so a beat plays the same drums on Init and on
+any kit. Its second kick, snare and clap, its ride and its crash take the roles it has no drum of
+its own for: the second kick, snare and ride on 41–43, the second clap on 50 and the crash on 51.
+
 Product-safe preset names map to research references as follows:
 
 | Factory preset | Reference family |

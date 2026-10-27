@@ -1553,3 +1553,15 @@ model library), its one-shots through its reader (the rate read every frame, fou
 Resample help naming Soft hits. No behaviour moved: every remaining test kept its assertions;
 the generic ones are the shell's now.
 
+
+## Init in the factory kits' key layout (2026-10-27)
+
+A test song built in newDAWn showed that Init didn't follow the key layout of the nine audition
+kits: its second kick was on 37, its snares on 38 and 39, its cowbell on 46 and its hats on 47 and
+48, so a beat written for any kit played the wrong drums on Init. The owner chose to re-slot Init
+rather than document it as another layout. Its sixteen drums are the brief's, unchanged; only
+their order moved: kick, snare and the three toms on 36–40, rim, clap, the hats and the cymbal on
+44–48 and the cowbell on 49. The drums Init has no role for take the ones it has no drum for: the
+second kick, snare and the ride on 41–43, the second clap on 50 and the crash on 51. The main kick,
+snare and clap stay `bd1`, `sn1` and `cp1`. A song saved before keeps its kit: a state holds every
+slot's model.
