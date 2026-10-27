@@ -2473,8 +2473,8 @@ fn the_shipped_kits_are_their_designs() {
     }
 }
 
-/// Every file in `presets/` is a factory kit the plugin compiles in, and every kit has its file:
-/// a stale or misnamed file cannot sit there unshipped.
+/// Every file in `presets/`, the factory set installed beside the plugin, is named after the kit
+/// it holds: a misnamed file cannot sit there.
 #[test]
 fn every_preset_file_is_a_listed_kit() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("presets");
