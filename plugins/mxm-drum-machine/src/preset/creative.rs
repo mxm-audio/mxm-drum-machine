@@ -2473,7 +2473,7 @@ fn the_shipped_kits_are_their_designs() {
     }
 }
 
-/// Every file in `presets/`, the factory set installed beside the plugin, is named after the kit
+/// Every file in `presets/`, the factory set installed for the plugin's version, is named after the kit
 /// it holds: a misnamed file cannot sit there.
 #[test]
 fn every_preset_file_is_a_listed_kit() {
