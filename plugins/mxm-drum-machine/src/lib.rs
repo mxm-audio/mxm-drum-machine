@@ -2261,6 +2261,26 @@ mod full_layout {
         tempo: Option<f64>,
         frames: usize,
     ) -> Rendered {
+        let events = notes
+            .iter()
+            .map(|&note| NoteEvent::NoteOn {
+                timing: 0,
+                voice_id: VoiceID::Wildcard,
+                channel: Channel::Number(0),
+                key: Key::Number(note),
+                velocity: 0.8,
+            })
+            .collect();
+        render_events(plugin, events, tempo, frames)
+    }
+
+    /// One `process()` call of `frames`, the host sending `events`.
+    fn render_events(
+        plugin: &mut MxmDrumMachine,
+        events: VecDeque<NoteEvent<()>>,
+        tempo: Option<f64>,
+        frames: usize,
+    ) -> Rendered {
         let ports = if plugin.multi_output { SLOT_COUNT } else { 0 };
         let mut left = vec![0.0_f32; frames];
         let mut right = vec![0.0_f32; frames];
@@ -2295,16 +2315,6 @@ mod full_layout {
                 inputs: &mut inputs,
                 outputs: &mut outputs,
             };
-            let events = notes
-                .iter()
-                .map(|&note| NoteEvent::NoteOn {
-                    timing: 0,
-                    voice_id: VoiceID::Wildcard,
-                    channel: Channel::Number(0),
-                    key: Key::Number(note),
-                    velocity: 0.8,
-                })
-                .collect();
             let mut transport = Transport::new(SAMPLE_RATE);
             transport.tempo = tempo;
             plugin.process(&mut main, &mut aux, &mut Events { transport, events });
@@ -2547,10 +2557,12 @@ mod full_layout {
     }
 
     /// **Resting is exact** (the idle floor, 2026-11-04): buffers long enough for a still engine to
-    /// rest render what one-frame buffers, which never rest, render. Short hits, a route, a pitched
-    /// hat, and silences, through one of which every smoothed parameter glides to a new value.
+    /// rest render what never rests: one-frame buffers each carrying a controller message nothing
+    /// reads, so that every sample is an event's (one-frame buffers alone rest a sample at a time).
+    /// Short hits, a route, a pitched hat, and silences, through one of which every smoothed
+    /// parameter glides to a new value.
     #[test]
-    fn a_still_engine_rests_what_one_frame_buffers_render() {
+    fn a_still_engine_rests_what_rendering_every_sample_makes() {
         use mxm_drum_machine_dsp::routing::{source, target};
         use nice_plug::params::internals::ParamPtr;
         let configure = |params: &MxmDrumMachineParams| {
@@ -2603,7 +2615,7 @@ mod full_layout {
             (hits, 4_000, none),
             (&[], 6_000, choke),
         ];
-        let play = |buffer: usize| {
+        let play = |rests: bool| {
             let mut plugin = activated(0, configure);
             let mut bits = Vec::new();
             for (step, &(notes, frames, first)) in steps.iter().enumerate() {
@@ -2618,9 +2630,30 @@ mod full_layout {
                 }
                 let mut done = 0;
                 while done < frames {
-                    let n = buffer.min(frames - done);
-                    let at_start: &[u8] = if done == 0 { notes } else { &[] };
-                    let rendered = render_frames(&mut plugin, at_start, None, n);
+                    let n = if rests { 512.min(frames - done) } else { 1 };
+                    let mut events: VecDeque<NoteEvent<()>> = if done == 0 {
+                        notes
+                            .iter()
+                            .map(|&note| NoteEvent::NoteOn {
+                                timing: 0,
+                                voice_id: VoiceID::Wildcard,
+                                channel: Channel::Number(0),
+                                key: Key::Number(note),
+                                velocity: 0.8,
+                            })
+                            .collect()
+                    } else {
+                        VecDeque::new()
+                    };
+                    if !rests {
+                        events.push_back(NoteEvent::MidiCC {
+                            timing: 0,
+                            channel: 0,
+                            cc: 3,
+                            value: 0.5,
+                        });
+                    }
+                    let rendered = render_events(&mut plugin, events, None, n);
                     for i in 0..n {
                         bits.push(rendered.main[0][i].to_bits());
                         bits.push(rendered.main[1][i].to_bits());
@@ -2629,7 +2662,7 @@ mod full_layout {
                     done += n;
                 }
                 if step == 1 {
-                    // The silence the larger buffers rest: settled, and the engine still.
+                    // The silence the resting side rests: settled, and the engine still.
                     let (patches, _, _) = plugin.next_frame();
                     assert!(plugin.settled(), "settled");
                     assert!(!plugin.engine.is_active(), "silent");
@@ -2639,7 +2672,7 @@ mod full_layout {
             bits
         };
         assert!(
-            play(1) == play(512),
+            play(false) == play(true),
             "resting changed what the instrument renders"
         );
     }

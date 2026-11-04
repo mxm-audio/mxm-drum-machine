@@ -228,7 +228,7 @@ knows: its slots as the names read them (`slot_names.rs`, `DrumSlots`), its capt
   `settled` finds every smoother a sample reads at rest. A smoother `next_frame` or the routes come
   to read joins `settled` in the same change
   (`a_parameter_gliding_where_a_sample_reads_keeps_the_kit_from_resting`,
-  `a_still_engine_rests_what_one_frame_buffers_render`); telemetry publishes once per internal block;
+  `a_still_engine_rests_what_rendering_every_sample_makes`); telemetry publishes once per internal block;
   `ProcessStatus::Tail` while any circuit is active, otherwise `Normal`, its length the longer of
   seven seconds and what the frozen hits have left to read (`Engine::frozen_tail_frames`).
 

@@ -1343,7 +1343,10 @@ live in the app bar*, above.)*
   sample, so it advances none, which is exact because it rests only while every smoother a sample
   reads is settled, and a settled smoother's `next` returns its target and stores nothing. Rested
   silence costs 0.18% of a core at 48 kHz for a loaded kit, where stepping it cost 5.7%
-  (2026-11-04; the DSP's NOTES.md § *A still engine rests a stretch at once*).
+  (2026-11-04; the DSP's NOTES.md § *A still engine rests a stretch at once*). The plugin test's
+  reference never rests: one-frame buffers alone rest a sample at a time (first written as the
+  reference, it compared resting with resting), so each also carries CC 3, which nothing reads,
+  making every sample an event's.
 - Output telemetry max-combines once per internal block; slot peaks publish once per internal block.
 - `ProcessStatus::Tail` is returned while any circuit remains active, otherwise `Normal`.
 
