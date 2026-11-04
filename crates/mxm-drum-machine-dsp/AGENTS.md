@@ -87,7 +87,14 @@ bounded extended-decay ranges, and D7's per-slot output frame and destination tr
   zero rejoins shared phase without resetting it. A choke never clears the machine's bank.
 - A bus is gated on `Engine::prepare`'s `*_has_reader` flags (any selected or retiring model) and
   jumps **exactly** to where running would have left it (`jump.rs`, fixed-point `u64` phase).
-  **Reseeding a dormant source is not allowed.** Gating on *sounding* is not done.
+  **Reseeding a dormant source is not allowed.** Gating on *sounding* is not done slot by slot.
+- **A still engine rests** (2026-11-04, [§ rest](NOTES.md#a-still-engine-rests-a-stretch-at-once)):
+  while `Engine::is_still` holds (no circuit, frozen reader or fade sounds, no metallic slot's bank
+  crossfades or follows a route), `Engine::rest` makes a stretch of silence at once: the LFOs
+  free-run, every bus counts it dormant and catches up at its next reader's sample, a private bank
+  jumps, and each slot's routes take the last sample's sources. A state a silent sample moves joins
+  `rest` in the same change; `every_model_rests_as_it_renders` and
+  `routes_private_banks_and_a_frozen_kit_rest_as_they_render` hold it to the render.
 - Integer phase tables are computed by `fixed()`, never typed. `advancing_lands_exactly_where_ticking_does`,
   `a_jump_equals_literal_stepping`, the shared-sample correlation tests and the reference bank stay
   bit-identical through any bus change.

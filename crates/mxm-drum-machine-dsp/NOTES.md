@@ -266,7 +266,8 @@ at most 64 XOR-folds. `a_jump_equals_literal_stepping` proves it against steppin
 **Every shared bus is gated, by the same rule.** `Engine::prepare` sets one `*_has_reader` flag
 per bus from any slot whose selected *or* retiring model reads it — selected, not sounding — so a
 tail can never be cut off from the source under it. Gating on *sounding* would save more and is
-the riskier half; it is not done.
+the riskier half; slot by slot it is not done. A whole engine standing still is the case with no
+tail to cut, and it rests (below).
 
 | Bus | How it catches up |
 |---|---|
@@ -283,7 +284,36 @@ sixteen struck kicks 1059 → 816, because a kit pays only for the buses its own
 **What remains is not bus cost.** Gating the last two noise sources moved the floor by less than
 the measurement's own noise, which says the residual ~250 ns is the sixteen-slot loop itself —
 the per-slot patch copy, routing check, destination routing and peak tracking. Another bus gate
-will not help; that loop is the next thing to look at, if anything.
+will not help; that loop is what a still engine's rest takes out of silence (below).
+
+### A still engine rests a stretch at once
+
+**Silence used to cost as much as the loop.** Measured on 2026-11-04 through the plugin's `process`,
+a loaded kit of sixteen different models left silent cost 5.7% of a core at 48 kHz, and sixteen
+`Off` slots 3.7%: the engine stepped every slot every sample, a reader's bus ticked though nothing
+sounded, and the plugin advanced about two hundred smoothers a sample around it.
+
+**Now a stretch of silence is made at once.** `Engine::is_still` holds when no circuit, frozen reader
+or fade sounds and no metallic slot's bank is crossfading or follows a route (a route may move its
+pitch, and so its bank's blend, sample by sample). Then every sample is silence that moves only
+free-running state, and `Engine::rest` moves that state the way rendering would: the LFOs advance
+sample by sample (an `f64` phase does not jump exactly), every shared bus counts the gap as dormant
+and catches up at its next reader's sample by the same exact jump gating already uses, a slot-private
+metal bank jumps at once (`MetalBank::advance`, the shared bank's arithmetic at the slot's pitch), and
+each routed slot publishes the last sample's sources, which is what the next strike reads. A voice
+needs nothing: every circuit returns at once while inactive and moves no state. The route frame's
+sample counter advances once rather than once a sample; only equality reads it.
+
+The plugin rests where nothing it hands the engine can change: no event or audition at the sample,
+every smoother `next_frame` and the routes read settled (a settled smoother returns its target and
+stores nothing), up to the next event or the internal block's edge. Master is above zero, so the
+silence it writes is the zero rendering would. A GUI edit landing inside a rest is seen at the next
+event or block edge, within the timing such an edit already has.
+
+**Measured the same way: 0.18% of a core at 48 kHz for the silent loaded kit, and 0.17% for sixteen
+`Off` slots.** Nothing changed in the sound: `same_sound_digests` printed the same 121 digests before
+and after, and the two `resting` tests hold every model, routes, a pitched bank and a frozen kit to
+the render, a gap inside each bus's replay window included.
 
 ## Velocity, choke and transitions
 

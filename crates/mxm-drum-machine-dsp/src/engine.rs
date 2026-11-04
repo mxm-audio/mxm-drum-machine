@@ -1013,17 +1013,7 @@ impl Engine {
             let mut patch = *base_patch;
             let routing = &self.routing[index];
             if routing.any() {
-                slot.sources = Sources {
-                    lfo1: lfo[0],
-                    lfo2: lfo[1],
-                    lfo3: lfo[2],
-                    // The performance sources through the collection's standard, each zero
-                    // at its rest: Velocity at the hardest hit.
-                    wheel: standard::wheel(finite_or(modulation.wheel[index], 0.0)),
-                    pressure: standard::pressure(finite_or(modulation.pressure[index], 0.0)),
-                    velocity: standard::velocity(slot.velocity),
-                    random: slot.random,
-                };
+                slot.sources = slot_sources(lfo, &modulation, index, slot.velocity, slot.random);
                 slot.routing.publish(routing, slot.sources);
                 apply_routes(&mut patch, &slot.routing, routing);
             }
@@ -1149,6 +1139,87 @@ impl Engine {
             }
         }
         output
+    }
+
+    /// Whether the engine stands still under `patches`: no circuit, frozen reader or fade sounds,
+    /// and no metallic slot's bank is crossfading or follows a route. While it holds and nothing it
+    /// is given changes, every sample is silence that moves only free-running state, which
+    /// [`Engine::rest`] moves at once.
+    #[must_use]
+    pub fn is_still(&self, patches: &[SlotPatch; SLOT_COUNT]) -> bool {
+        self.slots
+            .iter()
+            .zip(&self.routing)
+            .zip(patches)
+            .all(|((slot, routing), patch)| {
+                // A frozen kit still runs a circuit struck before it froze, its output unheard.
+                let quiet =
+                    !slot.is_active() && !slot.capture_voice.is_active() && slot.retire_gain <= 0.0;
+                // The bank blend's target, as `process_routed` takes it; a route may move a
+                // metallic slot's pitch sample by sample, so such a slot is never still.
+                let metal = is_metal(slot.rendering);
+                let target = if metal && patch.pitch_semitones.abs() > 1.0e-6 {
+                    1.0
+                } else {
+                    0.0
+                };
+                #[allow(clippy::float_cmp)]
+                let settled = slot.metal_blend == target;
+                quiet && settled && !(metal && routing.any())
+            })
+    }
+
+    /// Renders `samples` of silence at once, as [`Engine::process_routed`] would one by one under
+    /// the same `patches`, `modulation` and `destinations`, which [`Engine::is_still`] has
+    /// allowed: the LFOs free-run, every shared bus counts the samples as dormant and catches up
+    /// exactly at its next reader's sample, a slot-private metal bank jumps the same way, and each
+    /// slot's routes and frozen reader take the last sample's sources. Nothing else moves while
+    /// nothing sounds, so the state is what rendering would have left and every output is zero.
+    pub fn rest(
+        &mut self,
+        samples: usize,
+        patches: &[SlotPatch; SLOT_COUNT],
+        modulation: ModulationPatch,
+        destinations: &[Destination; SLOT_COUNT],
+    ) {
+        if samples == 0 {
+            return;
+        }
+        let mut lfo = [0.0; 3];
+        for sample in 0..samples {
+            for (index, (value, generator)) in lfo.iter_mut().zip(&mut self.lfos).enumerate() {
+                if sample + 1 == samples {
+                    *value = generator.value(modulation.lfo_shape[index]);
+                }
+                generator.advance(modulation.lfo_rate_hz[index], self.sample_rate);
+            }
+        }
+        let gap = samples as u64;
+        self.noise_808_dormant = self.noise_808_dormant.saturating_add(gap);
+        self.metal_dormant = self.metal_dormant.saturating_add(gap);
+        self.noise_909_dormant = self.noise_909_dormant.saturating_add(gap);
+        self.noise_55_dormant = self.noise_55_dormant.saturating_add(gap);
+        self.legacy_dormant = self.legacy_dormant.saturating_add(gap);
+        for (index, (slot, base_patch)) in self.slots.iter_mut().zip(patches).enumerate() {
+            slot.route_output(destinations[index]);
+            let mut patch = *base_patch;
+            let routing = &self.routing[index];
+            if routing.any() {
+                slot.sources = slot_sources(lfo, &modulation, index, slot.velocity, slot.random);
+                slot.routing.publish(routing, slot.sources);
+                apply_routes(&mut patch, &slot.routing, routing);
+            }
+            if slot.metal_blend > 0.0 {
+                slot.metal_pitch = patch.pitch_semitones;
+                slot.private_metal
+                    .advance(gap, self.sample_rate, slot.metal_pitch);
+            }
+            if let Some(captures) = &self.captures {
+                let _ = slot
+                    .capture_voice
+                    .process(captures.slot(index), patch.pitch_semitones);
+            }
+        }
     }
 
     /// Max-combined activity since the last read, for one slot.
@@ -1277,6 +1348,26 @@ fn rim_clave_kind(model: ImplementedModel) -> Option<RimClaveKind> {
         ImplementedModel::LayeredShortRim => Some(RimClaveKind::Rim),
         ImplementedModel::PureHighClave => Some(RimClaveKind::Clave),
         _ => None,
+    }
+}
+
+/// One slot's route sources for a sample: the kit-wide LFOs, and the performance sources through
+/// the collection's standard, each zero at its rest: Velocity at the hardest hit.
+fn slot_sources(
+    lfo: [f32; 3],
+    modulation: &ModulationPatch,
+    index: usize,
+    velocity: f32,
+    random: f32,
+) -> Sources {
+    Sources {
+        lfo1: lfo[0],
+        lfo2: lfo[1],
+        lfo3: lfo[2],
+        wheel: standard::wheel(finite_or(modulation.wheel[index], 0.0)),
+        pressure: standard::pressure(finite_or(modulation.pressure[index], 0.0)),
+        velocity: standard::velocity(velocity),
+        random,
     }
 }
 
@@ -2999,5 +3090,208 @@ mod sample_hold {
         lfo.reset();
         let after = drawn(&mut lfo, 4.0, 8);
         assert_eq!(before, after);
+    }
+}
+
+/// A still engine rests a stretch at once, and the stretch is what rendering it makes.
+#[cfg(test)]
+mod resting {
+    use super::*;
+    use crate::model::AVAILABLE_MODELS;
+
+    const RATE: f32 = 48_000.0;
+    /// Samples of sound before the choke, and after the second strike.
+    const SOUND: usize = 1_500;
+    /// Samples after the choke rendered as they are on both sides: the fades end and the metal
+    /// banks' blends settle.
+    const FADE: usize = 1_000;
+
+    struct Scene {
+        patches: [SlotPatch; SLOT_COUNT],
+        routing: [Routing; SLOT_COUNT],
+        frozen: bool,
+        /// Samples of silence the resting side may rest.
+        stretch: usize,
+    }
+
+    impl Scene {
+        fn new(models: &[ModelId], stretch: usize) -> Self {
+            let mut patches = [SlotPatch::default(); SLOT_COUNT];
+            for (patch, &model) in patches.iter_mut().zip(models) {
+                patch.model = model;
+            }
+            Self {
+                patches,
+                routing: [Routing::new(); SLOT_COUNT],
+                frozen: false,
+                stretch,
+            }
+        }
+
+        fn route(&mut self, slot: usize, target: usize, source: usize, amount: f32) {
+            let routing = &mut self.routing[slot];
+            routing.present[target][source] = true;
+            routing.amounts[target][source] = amount;
+            routing.compact();
+        }
+    }
+
+    fn metal(patch: &SlotPatch) -> bool {
+        is_metal(patch.model.implemented())
+    }
+
+    /// Every frame of `scene`, as bits, and how many samples were rested: every slot struck,
+    /// choked once it has sounded, silent for the fade and the stretch, struck again. Resting,
+    /// the stretch is taken in uneven pieces, each rested if the engine stands still.
+    fn play(scene: &Scene, rests: bool) -> (Vec<[u32; 2 + SLOT_COUNT]>, usize) {
+        let mut engine = Engine::new();
+        engine.set_sample_rate(RATE);
+        if scene.frozen {
+            let kit = crate::capture::capture_kit(&scene.patches, RATE).expect("a capture");
+            assert!(engine.set_captures(Some(Box::new(kit))).is_none());
+        }
+        engine.prepare(&scene.patches);
+        for (slot, routing) in scene.routing.iter().enumerate() {
+            engine.set_slot_routing(slot, *routing);
+        }
+        let modulation = ModulationPatch {
+            lfo_rate_hz: [3.0, 11.0, 0.7],
+            lfo_shape: [LfoShape::Sine, LfoShape::SampleHold, LfoShape::Triangle],
+            wheel: [0.3; SLOT_COUNT],
+            pressure: [0.6; SLOT_COUNT],
+        };
+        let destinations: [Destination; SLOT_COUNT] = std::array::from_fn(|slot| {
+            if slot % 3 == 0 {
+                Destination::Auxiliary(slot)
+            } else {
+                Destination::Main
+            }
+        });
+        engine.reset_output_destinations(&destinations);
+        let strike = |engine: &mut Engine| {
+            let mut triggers = TriggerGroup::new();
+            for slot in 0..SLOT_COUNT {
+                triggers.push(slot, 0.9);
+            }
+            engine.trigger_group(&scene.patches, triggers);
+        };
+        let render = |engine: &mut Engine, frames: &mut Vec<OutputFrame>, samples: usize| {
+            for _ in 0..samples {
+                frames.push(engine.process_routed(&scene.patches, modulation, &destinations));
+            }
+        };
+        let mut frames = Vec::new();
+        strike(&mut engine);
+        render(&mut engine, &mut frames, SOUND);
+        for slot in 0..SLOT_COUNT {
+            engine.choke(slot);
+        }
+        render(&mut engine, &mut frames, FADE);
+        let mut rested = 0;
+        let mut left = scene.stretch;
+        for piece in [1, 2, 3, 7, 64, 200, 333].into_iter().cycle() {
+            if left == 0 {
+                break;
+            }
+            let piece = piece.min(left);
+            if rests && engine.is_still(&scene.patches) {
+                engine.rest(piece, &scene.patches, modulation, &destinations);
+                frames.extend(std::iter::repeat_n(OutputFrame::default(), piece));
+                rested += piece;
+            } else {
+                render(&mut engine, &mut frames, piece);
+            }
+            left -= piece;
+        }
+        strike(&mut engine);
+        render(&mut engine, &mut frames, SOUND);
+        let bits = frames
+            .iter()
+            .map(|frame| {
+                let mut bits = [0; 2 + SLOT_COUNT];
+                bits[..2].copy_from_slice(&frame.main.map(f32::to_bits));
+                bits[2..].copy_from_slice(&frame.individual.map(f32::to_bits));
+                bits
+            })
+            .collect();
+        (bits, rested)
+    }
+
+    fn rests_as_it_renders(scene: &Scene, what: &str) -> usize {
+        let (rendered, _) = play(scene, false);
+        let (rested, samples) = play(scene, true);
+        assert!(rendered.len() == rested.len(), "{what}: lengths");
+        if let Some(at) = (0..rendered.len()).find(|&n| rendered[n] != rested[n]) {
+            panic!("{what}: the rested render differs from sample {at}");
+        }
+        samples
+    }
+
+    /// Every model, sixteen to a kit: a stretch rested is the stretch rendered, every shared bus
+    /// and the second hit included, over a long gap, one inside the 808 colour filter's window
+    /// and one inside the metal bank's.
+    #[test]
+    fn every_model_rests_as_it_renders() {
+        let models: Vec<ModelId> = AVAILABLE_MODELS.iter().map(|spec| spec.id).collect();
+        for (kit, chunk) in models.chunks(SLOT_COUNT).enumerate() {
+            for stretch in [5_000, 200, 3] {
+                let scene = Scene::new(chunk, stretch);
+                let rested = rests_as_it_renders(&scene, &format!("kit {kit}"));
+                assert!(
+                    rested * 2 >= stretch,
+                    "kit {kit} hardly rested: {rested} of {stretch}"
+                );
+            }
+        }
+    }
+
+    /// Routes on the rested slots take the last sample's sources; a pitched metal slot's private
+    /// bank jumps; a metal slot a route reaches is never still; a frozen kit rests as it plays.
+    #[test]
+    fn routes_private_banks_and_a_frozen_kit_rest_as_they_render() {
+        let models: Vec<ModelId> = AVAILABLE_MODELS.iter().map(|spec| spec.id).collect();
+        let with_metal = models
+            .chunks(SLOT_COUNT)
+            .find(|chunk| {
+                chunk.iter().any(|&model| is_metal(model.implemented()))
+                    && chunk.iter().any(|&model| !is_metal(model.implemented()))
+            })
+            .expect("a kit with metal and more");
+
+        let mut routed = Scene::new(with_metal, 3_000);
+        for slot in 0..SLOT_COUNT {
+            if !metal(&routed.patches[slot]) {
+                routed.route(slot, routing::target::LEVEL, routing::source::LFO1, -0.3);
+                routed.route(slot, routing::target::DECAY, routing::source::LFO2, 0.5);
+                routed.route(slot, routing::target::PAN, routing::source::WHEEL, 0.4);
+                routed.route(slot, routing::target::TONE, routing::source::RANDOM, 0.2);
+            }
+        }
+        assert!(rests_as_it_renders(&routed, "routed") > 0);
+
+        let mut pitched = Scene::new(with_metal, 3_000);
+        for patch in &mut pitched.patches {
+            patch.pitch_semitones = 3.0;
+        }
+        assert!(rests_as_it_renders(&pitched, "pitched") > 0);
+
+        let mut swept = Scene::new(with_metal, 1_000);
+        let slot = (0..SLOT_COUNT)
+            .find(|&slot| metal(&swept.patches[slot]))
+            .expect("a metal slot");
+        swept.route(slot, routing::target::PITCH, routing::source::LFO1, 0.5);
+        assert_eq!(
+            rests_as_it_renders(&swept, "swept"),
+            0,
+            "a routed metal slot rested"
+        );
+
+        let mut frozen = Scene::new(
+            &[ModelId::DEEP_BRIDGE_KICK, ModelId::TWIN_MODE_SNARE],
+            3_000,
+        );
+        frozen.frozen = true;
+        frozen.route(1, routing::target::PITCH, routing::source::LFO3, 0.5);
+        assert!(rests_as_it_renders(&frozen, "frozen") > 0);
     }
 }

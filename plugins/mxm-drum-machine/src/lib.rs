@@ -499,6 +499,22 @@ impl MxmDrumMachine {
         (slots, modulation, self.params.master.smoothed.next())
     }
 
+    /// Whether every smoother a sample reads has settled: [`Self::next_frame`]'s and the route
+    /// amounts'. The next sample's patches, modulation and Master are then this one's, which is what
+    /// lets a still engine rest (`Engine::rest`).
+    fn settled(&self) -> bool {
+        let still = |param: &FloatParam| !param.smoothed.is_smoothing();
+        self.params.slots.iter().all(|params| {
+            still(&params.level)
+                && still(&params.pan)
+                && (1..=control::USED).all(|k| still(params.controls.get(k)))
+                && params.routes.all().iter().all(|route| still(&route.amount))
+        }) && still(&self.params.lfo1_rate)
+            && still(&self.params.lfo2_rate)
+            && still(&self.params.lfo3_rate)
+            && still(&self.params.master)
+    }
+
     fn handle_developer_event(&self, event: NoteEvent<()>) {
         if !self.dev_cc {
             return;
@@ -770,8 +786,27 @@ impl Plugin for MxmDrumMachine {
                 // Before triggers, so a hit on a silent slot starts on its current destination.
                 let destinations = self.output_destinations();
                 self.engine.route_outputs(&destinations);
+                let quiet = events.is_none();
                 if let Some(events) = events {
                     self.apply_events(&patches, events);
+                }
+                // **A still engine rests to the next event or the block's edge at once.** With no
+                // event or audition here and every smoother settled, each sample until then builds
+                // these patches and renders silence that moves only free-running state, which
+                // `Engine::rest` moves exactly; Master is above zero, so the silence is zero.
+                if quiet && self.settled() && self.engine.is_still(&patches) {
+                    let until = next_event.map_or(block_end, |event| {
+                        (event.timing() as usize).clamp(index + 1, block_end)
+                    });
+                    self.engine
+                        .rest(until - index, &patches, modulation, &destinations);
+                    output[0][index..until].fill(0.0);
+                    output[1][index..until].fill(0.0);
+                    for port in aux.outputs.iter_mut() {
+                        port.as_slice()[0][index..until].fill(0.0);
+                    }
+                    index = until;
+                    continue;
                 }
                 let frame = self
                     .engine
@@ -2509,6 +2544,149 @@ mod full_layout {
             }
         }
         eprintln!("{}", lines.join("\n"));
+    }
+
+    /// **Resting is exact** (the idle floor, 2026-11-04): buffers long enough for a still engine to
+    /// rest render what one-frame buffers, which never rest, render. Short hits, a route, a pitched
+    /// hat, and silences, through one of which every smoothed parameter glides to a new value.
+    #[test]
+    fn a_still_engine_rests_what_one_frame_buffers_render() {
+        use mxm_drum_machine_dsp::routing::{source, target};
+        use nice_plug::params::internals::ParamPtr;
+        let configure = |params: &MxmDrumMachineParams| {
+            let models = [
+                ModelId::DEEP_BRIDGE_KICK,
+                ModelId::TWIN_MODE_SNARE,
+                ModelId::SIX_SQUARE_CLOSED_HAT,
+                ModelId::TWIN_SQUARE_COWBELL,
+            ];
+            for (slot, model) in models.into_iter().enumerate() {
+                let slot = &params.slots[slot];
+                // SAFETY: exclusive test ownership; no process or GUI thread exists.
+                unsafe {
+                    slot.model._internal_set_plain_value(i32::from(model.raw()));
+                    slot.controls
+                        .get(control::DECAY)
+                        ._internal_set_plain_value(-0.8);
+                }
+            }
+            // SAFETY: as above.
+            unsafe {
+                params.slots[2]
+                    .controls
+                    .get(control::TUNE)
+                    ._internal_set_plain_value(3.0)
+            };
+            route_to_pair(params, 1, 0, (target::LEVEL, source::LFO1), -0.4);
+        };
+        let glide = |plugin: &MxmDrumMachine| {
+            for (_, ptr, _) in plugin.params.param_map() {
+                if let ParamPtr::FloatParam(param) = ptr {
+                    // SAFETY: as above; the pointer is the plugin's own parameter.
+                    unsafe {
+                        let param = &*param;
+                        let moved = (param.unmodulated_normalized_value() + 0.37).fract();
+                        param._internal_set_normalized_value(moved);
+                        param._internal_update_smoother(SAMPLE_RATE, false);
+                    }
+                }
+            }
+        };
+        let hits: &[u8] = &[36, 37, 38, 39];
+        // Notes, frames, and what comes first: the hits choked (their tails are seconds long), or
+        // every smoothed parameter starting to glide.
+        let (none, choke, glides) = (0, 1, 2);
+        let steps: [(&[u8], usize, u8); 5] = [
+            (hits, 4_000, none),
+            (&[], 12_000, choke),
+            (&[], 12_000, glides),
+            (hits, 4_000, none),
+            (&[], 6_000, choke),
+        ];
+        let play = |buffer: usize| {
+            let mut plugin = activated(0, configure);
+            let mut bits = Vec::new();
+            for (step, &(notes, frames, first)) in steps.iter().enumerate() {
+                if first == choke {
+                    for slot in 0..hits.len() {
+                        plugin.engine.choke(slot);
+                    }
+                }
+                if first == glides {
+                    glide(&plugin);
+                    assert!(!plugin.settled(), "the glide is under way");
+                }
+                let mut done = 0;
+                while done < frames {
+                    let n = buffer.min(frames - done);
+                    let at_start: &[u8] = if done == 0 { notes } else { &[] };
+                    let rendered = render_frames(&mut plugin, at_start, None, n);
+                    for i in 0..n {
+                        bits.push(rendered.main[0][i].to_bits());
+                        bits.push(rendered.main[1][i].to_bits());
+                        bits.extend(rendered.individual.iter().map(|port| port[i].to_bits()));
+                    }
+                    done += n;
+                }
+                if step == 1 {
+                    // The silence the larger buffers rest: settled, and the engine still.
+                    let (patches, _, _) = plugin.next_frame();
+                    assert!(plugin.settled(), "settled");
+                    assert!(!plugin.engine.is_active(), "silent");
+                    assert!(plugin.engine.is_still(&patches), "still");
+                }
+            }
+            bits
+        };
+        assert!(
+            play(1) == play(512),
+            "resting changed what the instrument renders"
+        );
+    }
+
+    /// `settled` sees every smoother a sample reads: a parameter gliding alone either moves the next
+    /// sample's patches, modulation or Master, and then the kit is not settled, or it moves none.
+    #[test]
+    fn a_parameter_gliding_where_a_sample_reads_keeps_the_kit_from_resting() {
+        use nice_plug::params::internals::ParamPtr;
+        let ids: Vec<String> = MxmDrumMachine::default()
+            .params
+            .param_map()
+            .into_iter()
+            .filter(|(_, ptr, _)| matches!(ptr, ParamPtr::FloatParam(_)))
+            .map(|(id, _, _)| id)
+            .collect();
+        let mut read = 0;
+        for id in ids {
+            let plugin = activated(1, |_| {});
+            assert!(plugin.settled(), "an activated kit is settled");
+            let map = plugin.params.param_map();
+            let (_, ptr, _) = map
+                .iter()
+                .find(|(m, _, _)| *m == id)
+                .expect("the parameter");
+            let ParamPtr::FloatParam(param) = *ptr else {
+                unreachable!("filtered to floats")
+            };
+            // SAFETY: exclusive test ownership; the pointer is the plugin's own parameter.
+            unsafe {
+                let param = &*param;
+                let moved = (param.unmodulated_normalized_value() + 0.37).fract();
+                param._internal_set_normalized_value(moved);
+                param._internal_update_smoother(SAMPLE_RATE, false);
+            }
+            let settled = plugin.settled();
+            let first = format!("{:?}", plugin.next_frame());
+            let second = format!("{:?}", plugin.next_frame());
+            if first != second {
+                read += 1;
+                assert!(!settled, "{id} glides where `settled` does not look");
+            }
+        }
+        assert!(
+            read > SLOT_COUNT * 10,
+            "only {read} smoothers moved a sample"
+        );
     }
 }
 

@@ -1339,7 +1339,11 @@ live in the app bar*, above.)*
   256 NoteOns and 256 non-matching chokes — measured 59 µs in release on the Windows development
   machine (2026-09-18), down from 725 µs with per-slot removal. Output selectors are applied before
   triggers. Process buffers are capped at 64 samples between event checks even when event-free.
-- Parameter smoothers advance exactly once per rendered sample.
+- Parameter smoothers advance exactly once per rendered sample. A still engine's rest renders no
+  sample, so it advances none, which is exact because it rests only while every smoother a sample
+  reads is settled, and a settled smoother's `next` returns its target and stores nothing. Rested
+  silence costs 0.18% of a core at 48 kHz for a loaded kit, where stepping it cost 5.7%
+  (2026-11-04; the DSP's NOTES.md § *A still engine rests a stretch at once*).
 - Output telemetry max-combines once per internal block; slot peaks publish once per internal block.
 - `ProcessStatus::Tail` is returned while any circuit remains active, otherwise `Normal`.
 

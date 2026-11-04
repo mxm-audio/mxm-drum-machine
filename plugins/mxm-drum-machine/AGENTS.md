@@ -223,7 +223,12 @@ knows: its slots as the names read them (`slot_names.rs`, `DrumSlots`), its capt
   `mxm_part_routing`'s `EventGroup` and `PartState`, with this plugin's laws (`NoteLaws`) and flood
   response passed in, and order-independent; same-offset controller events keep host order. Output selectors apply before
   triggers; buffers are capped at 64 samples between event checks.
-- Smoothers advance once per rendered sample; telemetry publishes once per internal block;
+- Smoothers advance once per rendered sample; a still engine rests instead (the DSP's
+  `Engine::rest`) to the next event or the internal block's edge, when no event is due and
+  `settled` finds every smoother a sample reads at rest. A smoother `next_frame` or the routes come
+  to read joins `settled` in the same change
+  (`a_parameter_gliding_where_a_sample_reads_keeps_the_kit_from_resting`,
+  `a_still_engine_rests_what_one_frame_buffers_render`); telemetry publishes once per internal block;
   `ProcessStatus::Tail` while any circuit is active, otherwise `Normal`, its length the longer of
   seven seconds and what the frozen hits have left to read (`Engine::frozen_tail_frames`).
 
