@@ -1299,6 +1299,14 @@ fn free_route(p: &SlotParams, target: RouteTarget) -> Option<usize> {
         .or_else(|| (0..ROUTES).find(|&r| free(r)))
 }
 
+/// **`‹ modulate ›`'s stop for the keyboard cursor**: not a parameter, it acts on one (the free
+/// route it takes), so it has a key of its own, named for its slot and target
+/// (`mxm_ui::navigation::at`), as the slots' names and models have. MENU opens its list, ↑ ↓ and
+/// Enter pick; VALUE and an arrow take the first source.
+fn modulate_key(slot: usize, target: RouteTarget) -> String {
+    format!("slot {} modulate {}", slot + 1, target.index())
+}
+
 /// The sources `axis`'s add menu offers on `model`'s panel: none on a control the model does not
 /// show — a route already there is drawn but never offered more — and otherwise [`offered`].
 fn offered_on(p: &SlotParams, axis: Axis, model: ModelId) -> Vec<SourceChoice> {
@@ -1397,13 +1405,13 @@ fn route_stack(
     let offered = offered_on(p, axis, model);
     if !on.is_empty() {
         mxm_ui::shell::group(ui, tokens, |ui| {
-            target_line(ui, tokens, p, axis, &offered, setter);
+            target_line(ui, tokens, p, slot, axis, &offered, setter);
             for r in on {
                 route_row(ui, tokens, p, slot, r, axis, setter, entries);
             }
         });
     } else if !offered.is_empty() {
-        target_line(ui, tokens, p, axis, &offered, setter);
+        target_line(ui, tokens, p, slot, axis, &offered, setter);
     }
 }
 
@@ -1414,6 +1422,7 @@ fn target_line(
     ui: &mut Ui,
     tokens: &Tokens,
     p: &SlotParams,
+    slot: usize,
     axis: Axis,
     offered: &[SourceChoice],
     setter: &ParamSetter<'_>,
@@ -1438,16 +1447,18 @@ fn target_line(
         .collect();
     let mut chosen = 0usize;
     let description = format!("Add a modulation source to {name}");
-    let changed = control::selector(
-        ui,
-        tokens,
-        &name,
-        &labels,
-        &mut chosen,
-        None,
-        Some(0),
-        &description,
-    );
+    let changed = mxm_ui::navigation::at(ui, &modulate_key(slot, axis.target()), |ui| {
+        control::selector(
+            ui,
+            tokens,
+            &name,
+            &labels,
+            &mut chosen,
+            None,
+            Some(0),
+            &description,
+        )
+    });
     if changed && chosen > 0 {
         add_route(p, axis.target(), offered[chosen - 1], setter);
     }
@@ -2575,7 +2586,76 @@ mod tests {
         // Each slot's name box and model name: not parameters, but in the cursor's reach.
         ids.extend(SLOT_NAME_KEYS.iter().map(|key| (*key).to_owned()));
         ids.extend(SLOT_MODEL_KEYS.iter().map(|key| (*key).to_owned()));
+        // Each `‹ modulate ›` that offers a source: not a parameter either.
+        for (slot, p) in params.slots.iter().enumerate() {
+            let model = p.model_id();
+            let axes = (1..=CONTROLS)
+                .map(|k| Axis::Control(k as u8))
+                .chain([Axis::Level, Axis::Pan]);
+            for axis in axes {
+                if !offered_on(p, axis, model).is_empty() {
+                    ids.push(modulate_key(slot, axis.target()));
+                }
+            }
+        }
         ids
+    }
+
+    /// **A route is added from the keyboard**: the cursor on a knob's `‹ modulate ›`, MENU opens its
+    /// list, ↓ and Enter pick its first source, and the free route is written in one bracketed
+    /// gesture, as a click on the row would write it.
+    #[test]
+    fn a_route_is_added_from_the_keyboard() {
+        use egui_kittest::kittest::Queryable;
+
+        let params = MxmDrumMachineParams::default();
+        let telemetry = Telemetry::default();
+        let host = RecordingHost::default();
+        let setter = ParamSetter::new(&host);
+        let mut state = editor_state(&params);
+        let mut panel = drive(&params, &telemetry, &setter, &mut state);
+        let fonts = std::cell::Cell::new(false);
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(REFERENCE.0 as f32, REFERENCE.1 as f32))
+            .build_ui(|ui| {
+                if !fonts.replace(true) {
+                    mxm_ui::typography::apply(ui.ctx());
+                    mxm_ui::theme::apply(ui.ctx());
+                }
+                let screen = ui.ctx().content_rect();
+                ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| panel(ui));
+            });
+        harness.run_steps(4);
+        let first = offered(&params.slots[0], RouteTarget::Level)[0];
+        harness
+            .get(
+                egui_kittest::kittest::By::new()
+                    .label("Level: modulate")
+                    .role(egui::accesskit::Role::ComboBox),
+            )
+            .focus();
+        harness.run_steps(2);
+        harness.key_press(keyboard_checks::key_of(keyboard_checks::MENU));
+        harness.run_steps(3);
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run_steps(2);
+        harness.key_press(egui::Key::Enter);
+        harness.run_steps(3);
+        let route = params.slots[0].routes.all()[0];
+        assert_eq!(route.source.value(), first);
+        assert_eq!(
+            RouteTarget::from_index(route.target.value() as usize),
+            RouteTarget::Level
+        );
+        let calls: Vec<Call> = host.calls().into_iter().map(|(call, _)| call).collect();
+        let opened = calls.iter().filter(|c| **c == Call::Begin).count();
+        assert!(opened > 0, "the add is written");
+        assert_eq!(
+            calls.iter().position(|c| *c != Call::Begin),
+            Some(opened),
+            "every write opened before the first value: {calls:?}"
+        );
+        assert_eq!(calls.iter().filter(|c| **c == Call::End).count(), opened);
     }
 
     /// A click on a slot's model name, or OPEN with the cursor on it, selects the slot and strikes

@@ -145,7 +145,9 @@ knows: its slots as the names read them (`slot_names.rs`, `DrumSlots`), its capt
   not on it while a slot is free, adding takes a free slot (one aimed at that knob first) in one
   bracketed gesture, removing switches the source off. **Only a shown knob offers sources**; a route
   already aimed at a control the model does not show is drawn under `<name> (unused)`, removable,
-  never offered more. Each LFO row is Rate, Sync, then six **drawn** shapes.
+  never offered more. **`‹ modulate ›` is a cursor stop** (`modulate_key`, slot and target; the
+  owner, 2026-11-05): MENU opens its list, ↑ ↓ and Enter pick. Each LFO row is Rate, Sync, then
+  six **drawn** shapes.
 - Output is the last card: Level/Pan, Output, Choke group, MIDI channel, then **All slots**
   (`binding::set_together`), which is not a parameter and stores nothing.
 - **Kit-wide controls sit in the app bar**: Master, then Resample and Export samples, sized from the
