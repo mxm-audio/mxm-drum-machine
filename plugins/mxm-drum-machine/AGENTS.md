@@ -34,6 +34,13 @@ knows: its slots as the names read them (`slot_names.rs`, `DrumSlots`), its capt
   declaration order. A name is not identity, and port names carry no model name.
 - **Hosts do not report which outputs are patched**: switching-jack normalling (a patched output
   leaving `L+R`) is impossible and must not be attempted.
+- **The plugin reports which outputs its slots are routed to** (`src/outputs.rs`, mxm-kit's
+  `mxm_drum_shell::outputs`; the MXM CLAP extension `dk.mxm.outputs-in-use/1` and VST3 interface
+  `IOutputsInUse`, one source for both, 2026-11-20): each output a playing slot's Output sends
+  to, named after its slots, whatever configuration is active, so a host can give it a track (the
+  owner, 2026-11-19); and, asked, which Outputs to set to `L+R` to take one back to main, which a
+  host sets when that track is deleted (2026-11-20). The other way round still holds: the host
+  never tells it which outputs it listens to.
 - Each slot's MIDI channel defaults to `Kit` (notes 36–51 on every unclaimed channel); channel
   1…16 makes the slot chromatic and claims the channel. A pitched model plays at concert pitch via
   `ModelId::chromatic_reference_key`, a noise voice around note 60. Kit slots ignore notes on a
